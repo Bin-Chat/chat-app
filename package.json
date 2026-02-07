@@ -1,0 +1,57 @@
+{
+  "name": "chat-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chat Application with Microservices Architecture",
+  "author": "Your Name",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "npm run --workspaces --if-present dev",
+    "build": "npm run --workspaces --if-present build",
+    "test": "npm run --workspaces --if-present test",
+    "test:coverage": "npm run --workspaces --if-present test:coverage",
+    "lint": "npm run --workspaces --if-present lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "clean": "npm run --workspaces --if-present clean && rm -rf node_modules",
+    "start": "concurrently \"docker-compose up -d postgres redis redpanda\" \"npm run wait-for-services\" \"npm run web:dev\"",
+    "start:all": "concurrently \"docker-compose up -d\" \"npm run web:dev\"",
+    "start:docker": "docker-compose up -d --build",
+    "stop": "docker-compose down",
+    "wait-for-services": "sleep 15",
+    "services:dev": "npm run dev --workspace=services/*",
+    "services:build": "npm run build --workspace=services/*",
+    "web:dev": "npm run dev --workspace=@chat-app/web",
+    "web:build": "npm run build --workspace=@chat-app/web",
+    "mobile:dev": "npm run dev --workspace=@chat-app/mobile",
+    "mobile:android": "npm run android --workspace=@chat-app/mobile",
+    "mobile:ios": "npm run ios --workspace=@chat-app/mobile",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "db:migrate": "npm run db:migrate --workspace=@chat-app/auth",
+    "db:seed": "npm run db:seed --workspace=@chat-app/auth",
+    "prepare": "node -e \"try { require('husky').install() } catch (e) {}\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.3",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0"
+  }
+}

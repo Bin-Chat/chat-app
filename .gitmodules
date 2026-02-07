@@ -1,0 +1,24 @@
+[submodule "apps/web"]
+	path = apps/web
+	url = https://github.com/DaoNgocAnh25092004/chat-app-ui-web.git
+	branch = main
+
+[submodule "apps/mobile"]
+	path = apps/mobile
+	url = https://github.com/DaoNgocAnh25092004/chat-app-ui-mobile.git
+	branch = main
+
+[submodule "services/auth"]
+	path = services/auth
+	url = https://github.com/DaoNgocAnh25092004/chat-app-service-auth.git
+	branch = main
+
+[submodule "gateway/api-gateway"]
+	path = gateway/api-gateway
+	url = https://github.com/DaoNgocAnh25092004/chat-app-gateway.git
+	branch = main
+
+[submodule "infrastructure"]
+	path = infrastructure
+	url = https://github.com/DaoNgocAnh25092004/chat-app-infrastructure.git
+	branch = main
