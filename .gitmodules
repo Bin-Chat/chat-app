@@ -13,8 +13,8 @@
 	url = https://github.com/DaoNgocAnh25092004/chat-app-service-auth.git
 	branch = main
 
-[submodule "gateway/api-gateway"]
-	path = gateway/api-gateway
+[submodule "gateway"]
+	path = gateway
 	url = https://github.com/DaoNgocAnh25092004/chat-app-gateway.git
 	branch = main
 
