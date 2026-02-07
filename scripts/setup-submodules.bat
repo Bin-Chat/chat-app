@@ -1,4 +1,8 @@
 @echo off
+
+REM Navigate to project root (parent of scripts folder)
+cd /d "%~dp0.."
+
 echo ====================================
 echo Git Submodules Setup Script
 echo ====================================
@@ -46,7 +50,11 @@ if exist "services\auth\package.json" (
 echo.
 
 echo --- Installing dependencies for gateway ---
-if exist "gateway\package.json" (
+if exist "gateway\api-gateway\package.json" (
+    cd gateway\api-gateway
+    call npm install
+    cd ..\..
+) else if exist "gateway\package.json" (
     cd gateway
     call npm install
     cd ..

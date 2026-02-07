@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Navigate to project root (parent of scripts folder)
+cd "$(dirname "$0")/.."
+
 echo "===================================="
 echo "Git Submodules Setup Script"
 echo "===================================="
@@ -44,7 +47,11 @@ fi
 echo
 
 echo "--- Installing dependencies for gateway ---"
-if [ -f "gateway/package.json" ]; then
+if [ -f "gateway/api-gateway/package.json" ]; then
+    cd gateway/api-gateway
+    npm install
+    cd ../..
+elif [ -f "gateway/package.json" ]; then
     cd gateway
     npm install
     cd ..
