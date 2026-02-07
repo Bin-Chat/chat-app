@@ -43,13 +43,13 @@ else
 fi
 echo
 
-echo "--- Installing dependencies for gateway/api-gateway ---"
-if [ -f "gateway/api-gateway/package.json" ]; then
-    cd gateway/api-gateway
+echo "--- Installing dependencies for gateway ---"
+if [ -f "gateway/package.json" ]; then
+    cd gateway
     npm install
-    cd ../..
+    cd ..
 else
-    echo "Skipping gateway/api-gateway - package.json not found"
+    echo "Skipping gateway - package.json not found"
 fi
 echo
 

@@ -52,15 +52,6 @@ tmp/
 temp/
 
 # ============================================
-# Polyrepo - Ignore submodule contents
+# Git Submodules được Git tự động quản lý
 # ============================================
-# Ignore all contents but keep the folders
-apps/*
-!apps/.gitkeep
-
-services/*
-!services/.gitkeep
-
-gateway
-
-infrastructure
+# Không cần ignore submodules - Git sẽ track chúng

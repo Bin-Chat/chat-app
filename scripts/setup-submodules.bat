@@ -45,13 +45,13 @@ if exist "services\auth\package.json" (
 )
 echo.
 
-echo --- Installing dependencies for gateway/api-gateway ---
-if exist "gateway\api-gateway\package.json" (
-    cd gateway\api-gateway
+echo --- Installing dependencies for gateway ---
+if exist "gateway\package.json" (
+    cd gateway
     call npm install
-    cd ..\..
+    cd ..
 ) else (
-    echo Skipping gateway/api-gateway - package.json not found
+    echo Skipping gateway - package.json not found
 )
 echo.
 
