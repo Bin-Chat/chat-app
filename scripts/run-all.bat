@@ -48,8 +48,8 @@ echo [OK] Dependencies ready
 REM Start infrastructure
 echo.
 echo [4/6] Starting infrastructure...
-docker-compose up -d postgres
-echo Waiting 15 seconds for database...
+docker-compose up -d postgres redis redpanda
+echo Waiting 15 seconds for infrastructure...
 timeout /t 15 /nobreak >nul
 echo [OK] Infrastructure started
 
@@ -57,7 +57,7 @@ REM Start backend services
 echo.
 echo [5/6] Starting backend services...
 echo This may take 5-10 minutes on first run...
-docker-compose up -d --build api-gateway auth-service
+docker-compose up -d --build api-gateway auth-service user-service notification-service
 
 REM Start frontend
 echo.
@@ -75,7 +75,11 @@ echo Service URLs:
 echo   Frontend:              http://localhost:5173
 echo   API Gateway:           http://localhost:3000
 echo   Auth Service:          http://localhost:3010
+echo   User Service:          http://localhost:3020
+echo   Notification Service:  http://localhost:3030
 echo   Database (Postgres):   localhost:5432
+echo   Redis:                 localhost:6379
+echo   Redpanda (Kafka):      localhost:19092
 echo.
 echo Backend services are building in background...
 echo Check status: docker-compose ps

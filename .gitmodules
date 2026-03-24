@@ -22,3 +22,9 @@
 	path = infrastructure
 	url = https://github.com/DaoNgocAnh25092004/chat-app-infrastructure.git
 	branch = main
+[submodule "services/notification"]
+	path = services/notification
+	url = https://github.com/bin-chat/chat-app-service-notification.git
+[submodule "services/user"]
+	path = services/user
+	url = https://github.com/bin-chat/chat-app-service-user.git

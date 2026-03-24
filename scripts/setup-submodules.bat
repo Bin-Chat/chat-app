@@ -49,6 +49,26 @@ if exist "services\auth\package.json" (
 )
 echo.
 
+echo --- Installing dependencies for services/user ---
+if exist "services\user\package.json" (
+    cd services\user
+    call npm install
+    cd ..\..
+) else (
+    echo Skipping services/user - package.json not found
+)
+echo.
+
+echo --- Installing dependencies for services/notification ---
+if exist "services\notification\package.json" (
+    cd services\notification
+    call npm install
+    cd ..\..
+) else (
+    echo Skipping services/notification - package.json not found
+)
+echo.
+
 echo --- Installing dependencies for gateway ---
 if exist "gateway\api-gateway\package.json" (
     cd gateway\api-gateway
