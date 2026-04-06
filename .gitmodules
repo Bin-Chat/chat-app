@@ -31,3 +31,6 @@
 [submodule "services/chat"]
 	path = services/chat
 	url = https://github.com/Bin-Chat/chat-app-service-chat.git
+[submodule "services/friend"]
+	path = services/friend
+	url = https://github.com/Bin-Chat/chat-app-service-friend.git
