@@ -6,7 +6,7 @@
   "author": "Your Name",
   "license": "MIT",
   "workspaces": [
-    "apps/*",
+    "apps/web",
     "services/*",
     "packages/*"
   ],
@@ -43,15 +43,23 @@
     "prepare": "node -e \"try { require('husky').install() } catch (e) {}\""
   },
   "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@remix-run/router": "^1.23.2",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "eslint": "^8.55.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-import": "^2.29.0",
-    "prettier": "^3.1.0",
-    "typescript": "^5.3.3",
     "husky": "^8.0.3",
-    "lint-staged": "^15.2.0"
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.0",
+    "react-remove-scroll": "^2.7.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "expo-splash-screen": "^55.0.15",
+    "lucide-react-native": "^1.7.0",
+    "react-native-svg": "^15.15.4"
   }
 }

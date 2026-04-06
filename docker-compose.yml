@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: chatapp
-      POSTGRES_PASSWORD: ngocanh123
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: chatapp
       POSTGRES_INITDB_ARGS: '-A md5'
     ports:
@@ -68,6 +68,25 @@ services:
       retries: 5
 
   # ========================================
+  # DATABASE - MongoDB (Chat)
+  # ========================================
+  mongo:
+    image: mongo:7
+    container_name: chat-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - chat-network
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================================
   # EVENT BUS - Redpanda (Kafka-compatible)
   # ========================================
   redpanda:
@@ -117,14 +136,24 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
-      - JWT_SECRET=super-secret-jwt-key-2026-change-this-in-production-abc123xyz
+      - JWT_SECRET=${JWT_SECRET}
       - AUTH_SERVICE_URL=http://auth-service:3010
       - USER_SERVICE_URL=http://user-service:3020
-      - CORS_ORIGIN=http://localhost:5173,http://localhost:3000
+      - FRIEND_SERVICE_URL=http://friend-service:3025
+      - UPLOAD_SERVICE_URL=http://upload-service:3035
+      - CHAT_SERVICE_URL=http://chat-service:3040
+      - CORS_ORIGIN=http://localhost:5173,http://localhost:3000,http://localhost:8081,http://localhost:19006
+      - KAFKA_BROKER=redpanda:9092
     depends_on:
       auth-service:
         condition: service_healthy
       user-service:
+        condition: service_healthy
+      friend-service:
+        condition: service_healthy
+      upload-service:
+        condition: service_healthy
+      chat-service:
         condition: service_healthy
     networks:
       - chat-network
@@ -153,13 +182,14 @@ services:
       - DB_PORT=5432
       - DB_NAME=auth_service
       - DB_USERNAME=chatapp
-      - DB_PASSWORD=ngocanh123
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET=super-secret-jwt-key-2026-change-this-in-production-abc123xyz
-      - JWT_REFRESH_SECRET=super-secret-refresh-key-2026-change-this-in-production-xyz789abc
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - JWT_ACCESS_EXPIRATION=15m
       - JWT_REFRESH_EXPIRATION=7d
+      - USER_SERVICE_URL=http://user-service:3020
       - KAFKA_BROKER=redpanda:9092
     depends_on:
       postgres:
@@ -196,10 +226,10 @@ services:
       - DB_PORT=5432
       - DB_NAME=user_service
       - DB_USERNAME=chatapp
-      - DB_PASSWORD=ngocanh123
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
       - KAFKA_BROKER=redpanda:9092
-      - JWT_SECRET=super-secret-jwt-key-2026-change-this-in-production-abc123xyz
-      - JWT_REFRESH_SECRET=super-secret-refresh-key-2026-change-this-in-production-xyz789abc
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,6 +248,43 @@ services:
   # MICROSERVICES - Notification Service (NestJS)
   # ========================================
 
+  # ========================================
+  # MICROSERVICES - Friend Service (NestJS)
+  # ========================================
+
+  friend-service:
+    build:
+      context: ./services/friend
+      dockerfile: Dockerfile
+    container_name: friend-service
+    restart: unless-stopped
+    ports:
+      - '3025:3025'
+    environment:
+      - NODE_ENV=development
+      - PORT=3025
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=friend_service
+      - DB_USERNAME=chatapp
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - KAFKA_BROKER=redpanda:9092
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - chat-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3025/api/friends/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   notification-service:
     build:
       context: ./services/notification
@@ -230,14 +297,77 @@ services:
       - NODE_ENV=development
       - PORT=3030
       - KAFKA_BROKER=redpanda:9092
-      - MAIL_USER=daongocanh25042004@gmail.com
-      - MAIL_PASS=hhlk qwsq kgxz xerl
-      - MAIL_FROM=Bin Chat <daongocanh25042004@gmail.com>
+      - MAIL_USER=${MAIL_USER}
+      - MAIL_PASS=${MAIL_PASS}
+      - MAIL_FROM=${MAIL_FROM}
     depends_on:
       redpanda:
         condition: service_healthy
     networks:
       - chat-network
+
+  # ========================================
+  # MICROSERVICES - Upload Service (NestJS)
+  # ========================================
+
+  upload-service:
+    build:
+      context: ./services/upload
+      dockerfile: Dockerfile
+    container_name: upload-service
+    restart: unless-stopped
+    ports:
+      - '3035:3035'
+    environment:
+      - NODE_ENV=development
+      - PORT=3035
+      - JWT_SECRET=${JWT_SECRET}
+      - AWS_REGION=ap-southeast-1
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+      - CLOUDFRONT_URL=https://d1lcfg5g3uvpfy.cloudfront.net
+      - PRESIGN_TTL=900
+    networks:
+      - chat-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3035/api/uploads/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ========================================
+  # MICROSERVICES - Chat Service (NestJS + MongoDB)
+  # ========================================
+
+  chat-service:
+    build:
+      context: ./services/chat
+      dockerfile: Dockerfile
+    container_name: chat-service
+    restart: unless-stopped
+    ports:
+      - '3040:3040'
+    environment:
+      - NODE_ENV=development
+      - PORT=3040
+      - MONGO_URI=mongodb://mongo:27017/chat_service
+      - KAFKA_BROKER=redpanda:9092
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - chat-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3040/api/chat/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 # ========================================
 # VOLUMES & NETWORKS
@@ -249,6 +379,8 @@ volumes:
   redis_data:
     driver: local
   redpanda_data:
+    driver: local
+  mongo_data:
     driver: local
 
 networks:
