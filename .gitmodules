@@ -28,3 +28,6 @@
 [submodule "services/user"]
 	path = services/user
 	url = https://github.com/bin-chat/chat-app-service-user.git
+[submodule "services/chat"]
+	path = services/chat
+	url = https://github.com/Bin-Chat/chat-app-service-chat.git
