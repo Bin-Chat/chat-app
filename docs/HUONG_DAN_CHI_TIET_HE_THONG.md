@@ -32,9 +32,8 @@
 24. [Bug Fixes & Tính năng mới (2026-04-06 – phiên 2)](#24-bug-fixes--tính-năng-mới-2026-04-06--phiên-2)
 25. [Bug Fixes & Tính năng mới (2026-04-06 – phiên 3)](#25-bug-fixes--tính-năng-mới-2026-04-06--phiên-3)
 26. [Quản lý Nhóm Chat (Group Chat Management)](#26-quản-lý-nhóm-chat-group-chat-management)
-23. [Bug Fixes & Tính năng mới (2026-04-06 – phiên 1)](#23-bug-fixes--tính-năng-mới-2026-04-06--phiên-1)
-24. [Bug Fixes & Tính năng mới (2026-04-06 – phiên 2)](#24-bug-fixes--tính-năng-mới-2026-04-06--phiên-2)
-25. [Bug Fixes & Tính năng mới (2026-04-06 – phiên 3)](#25-bug-fixes--tính-năng-mới-2026-04-06--phiên-3)
+27. [Bug Fixes & Cải thiện Nhóm Chat (2026-04-07)](#27-bug-fixes--cải-thiện-nhóm-chat-2026-04-07)
+28. [Hệ thống Presence (Hoạt động trực tuyến)](#28-hệ-thống-presence-hoạt-động-trực-tuyến)
 
 ---
 
@@ -861,7 +860,7 @@ POST /api/chat/conversations/:id/messages
 ### Điều kiện
 
 - Chỉ người gửi mới được thu hồi (`senderId === currentUserId`)
-- Trong vòng 15 phút kể từ lúc gửi (`REVOKE_WINDOW_MS = 15 * 60 * 1000`)
+- Trong vòng **24 giờ** kể từ lúc gửi (`REVOKE_WINDOW_MS = 24 * 60 * 60 * 1000`)
 - Không thu hồi lại tin đã thu hồi
 
 ### Hành vi
@@ -875,7 +874,7 @@ POST /api/chat/conversations/:id/messages
 [User hover tin nhắn → click button Thu hồi (RotateCcw icon)]
      ↓
 [MessageBubble.handleRevoke()]
-canRevoke = isMine && !isRevoked && (Date.now() - createdAt < 15 phút)
+canRevoke = isMine && !isRevoked && (Date.now() - createdAt < 24 giờ)
      ↓
 dispatch(revokeMessage({ messageId, conversationId }))
 POST /api/chat/messages/:id/revoke
@@ -883,7 +882,7 @@ POST /api/chat/messages/:id/revoke
 [Chat Service]
 1. Tìm message theo _id
 2. Kiểm tra senderId === userId
-3. Kiểm tra elapsed < 15 phút
+3. Kiểm tra elapsed < 24 giờ
 4. Set revokedAt = new Date()
 5. Emit Kafka: chat.message.revoked { messageId, conversationId, participants }
      ↓
@@ -905,11 +904,11 @@ POST /api/chat/messages/:id/revoke
 
 ### Ba trường hợp
 
-| Trường hợp         | Ai thực hiện         | Button    | Hành vi                                       |
-| ------------------ | -------------------- | --------- | --------------------------------------------- |
-| **Thu hồi**        | Người gửi (≤15 phút) | RotateCcw | Cả hai phía thấy placeholder                  |
-| **Xóa ở phía tôi** | Người gửi            | Trash2    | Chỉ ẩn với mình, bên kia vẫn thấy bình thường |
-| **Xóa**            | Người nhận           | Trash2    | Chỉ ẩn với mình, không có placeholder         |
+| Trường hợp         | Ai thực hiện        | Button    | Hành vi                                       |
+| ------------------ | ------------------- | --------- | --------------------------------------------- |
+| **Thu hồi**        | Người gửi (≤24 giờ) | RotateCcw | Cả hai phía thấy placeholder                  |
+| **Xóa ở phía tôi** | Người gửi           | Trash2    | Chỉ ẩn với mình, bên kia vẫn thấy bình thường |
+| **Xóa**            | Người nhận          | Trash2    | Chỉ ẩn với mình, không có placeholder         |
 
 Cả "Xóa ở phía tôi" và "Xóa" đều hiển thị **confirmation dialog** (dùng `@radix-ui/react-dialog`) với mô tả rõ hành vi trước khi thực hiện.
 
@@ -1007,9 +1006,11 @@ Body: { emoji: "👍" }
 [Chat Service — toggleReaction()]
 1. Kiểm tra message tồn tại và chưa bị thu hồi
 2. Kiểm tra user là participant
-3. Tìm reaction có cùng userId + emoji trong message.reactions[]
-   - Nếu TỒN TẠI → XÓA (splice), action = 'removed'
-   - Nếu KHÔNG TỒN TẠI → THÊM (push), action = 'added'
+3. Tìm TẤT CẢ reactions của userId trong message.reactions[]
+   - Xóa toàn bộ reactions hiện tại của userId
+   - Nếu emoji gửi lên KHÁC emoji vừa xóa (hoặc không có trước): THÊM reaction mới
+   - Nếu emoji gửi lên GIỐNG emoji vừa xóa: không thêm (hiệu quả = toggle xóa)
+   ⇒ **Kết quả**: mỗi userId chỉ có tối đa 1 reaction trên một message
 4. Save message
 5. Emit Kafka: chat.reaction.toggled
    { messageId, conversationId, participants, userId, emoji, action }
@@ -1019,7 +1020,7 @@ Body: { emoji: "👍" }
      ↓
 [Client nhận 'message:reaction']
 7. dispatch(socketReactionToggled({ messageId, conversationId, userId, emoji }))
-8. Reducer cập nhật reactions[] trong Redux/Zustand (toggle: xóa nếu có, thêm nếu chưa)
+8. Reducer cập nhật reactions[]: xóa tất cả reactions của userId rồi thêm emoji mới (nếu action='added')
      ↓
 [MessageBubble re-render]
 9. Hiển thị grouped reactions: { emoji: "👍", count: 2 }
@@ -1269,12 +1270,18 @@ Service A làm việc → emit event → Kafka → Service B phản ứng (async
 
 #### Chat Events
 
-| Topic                       | Producer     | Consumer(s) | Payload                                                                           |
-| --------------------------- | ------------ | ----------- | --------------------------------------------------------------------------------- |
-| `chat.message.created`      | chat-service | api-gateway | `{ messageId, conversationId, senderId, participants[], content, attachments[] }` |
-| `chat.message.revoked`      | chat-service | api-gateway | `{ messageId, conversationId, participants[], revokedAt }`                        |
-| `chat.conversation.updated` | chat-service | api-gateway | `{ conversationId, participants[], lastMessage }`                                 |
-| `chat.reaction.toggled`     | chat-service | api-gateway | `{ messageId, conversationId, participants[], userId, emoji, action }`            |
+| Topic                        | Producer     | Consumer(s) | Payload                                                                           |
+| ---------------------------- | ------------ | ----------- | --------------------------------------------------------------------------------- |
+| `chat.message.created`       | chat-service | api-gateway | `{ messageId, conversationId, senderId, participants[], content, attachments[] }` |
+| `chat.message.revoked`       | chat-service | api-gateway | `{ messageId, conversationId, participants[], revokedAt }`                        |
+| `chat.message.edited`        | chat-service | api-gateway | `{ messageId, conversationId, participants[], content, editedAt }`                |
+| `chat.message.pinned`        | chat-service | api-gateway | `{ messageId, conversationId, participants[], pinnedBy, pinnedAt }`               |
+| `chat.message.unpinned`      | chat-service | api-gateway | `{ messageId, conversationId, participants[] }`                                   |
+| `chat.conversation.updated`  | chat-service | api-gateway | `{ conversationId, participants[], lastMessage }`                                 |
+| `chat.conversation.settings` | chat-service | api-gateway | `{ conversationId, participants[], settings }`                                    |
+| `chat.reaction.toggled`      | chat-service | api-gateway | `{ messageId, conversationId, participants[], userId, emoji, action }`            |
+| `chat.member.banned`         | chat-service | api-gateway | `{ conversationId, participants[], targetUserId, bannedUntil }`                   |
+| `chat.member.unbanned`       | chat-service | api-gateway | `{ conversationId, participants[], targetUserId }`                                |
 
 ### Consumer trong Gateway
 
@@ -1329,17 +1336,34 @@ handleMessageRevoked(event) {
 
 ### Chat Service
 
-| Method | Path                                   | Auth | Mô tả                             |
-| ------ | -------------------------------------- | ---- | --------------------------------- |
-| POST   | `/api/chat/conversations`              | ✅   | Tạo/tìm conversation (idempotent) |
-| GET    | `/api/chat/conversations`              | ✅   | Danh sách conversations           |
-| GET    | `/api/chat/conversations/:id`          | ✅   | Chi tiết conversation             |
-| GET    | `/api/chat/conversations/:id/messages` | ✅   | Tin nhắn (cursor-based, 30/page)  |
-| POST   | `/api/chat/conversations/:id/messages` | ✅   | Gửi tin nhắn                      |
-| PATCH  | `/api/chat/messages/:id/revoke`        | ✅   | Thu hồi tin nhắn (15 phút)        |
-| DELETE | `/api/chat/messages/:id`               | ✅   | Xóa phía mình (soft delete)       |
-| POST   | `/api/chat/messages/:id/forward`       | ✅   | Chuyển tiếp tin nhắn              |
-| POST   | `/api/chat/messages/:id/react`         | ✅   | Toggle emoji reaction             |
+| Method | Path                                           | Auth | Mô tả                                 |
+| ------ | ---------------------------------------------- | ---- | ------------------------------------- |
+| POST   | `/api/chat/conversations`                      | ✅   | Tạo/tìm conversation (idempotent)     |
+| GET    | `/api/chat/conversations`                      | ✅   | Danh sách conversations               |
+| GET    | `/api/chat/conversations/:id`                  | ✅   | Chi tiết conversation                 |
+| GET    | `/api/chat/conversations/:id/messages`         | ✅   | Tin nhắn (cursor-based, 30/page)      |
+| POST   | `/api/chat/conversations/:id/messages`         | ✅   | Gửi tin nhắn                          |
+| PATCH  | `/api/chat/messages/:id`                       | ✅   | Chỉnh sửa tin nhắn (cửa sổ 30 phút)   |
+| PATCH  | `/api/chat/messages/:id/revoke`                | ✅   | Thu hồi tin nhắn (24 giờ)             |
+| DELETE | `/api/chat/messages/:id`                       | ✅   | Xóa phía mình (soft delete)           |
+| POST   | `/api/chat/messages/:id/forward`               | ✅   | Chuyển tiếp tin nhắn                  |
+| POST   | `/api/chat/messages/:id/react`                 | ✅   | Toggle emoji reaction (1 per user)    |
+| POST   | `/api/chat/messages/:id/pin`                   | ✅   | Ghim tin nhắn (max 50)                |
+| DELETE | `/api/chat/messages/:id/pin`                   | ✅   | Bỏ ghim tin nhắn                      |
+| GET    | `/api/chat/conversations/:id/pinned`           | ✅   | Danh sách tin đã ghim                 |
+| POST   | `/api/chat/conversations/:id/read`             | ✅   | Đánh dấu đã đọc (cập nhật lastReadAt) |
+| PATCH  | `/api/chat/conversations/:id/settings`         | ✅   | Cập nhật cài đặt nhóm (owner only)    |
+| POST   | `/api/chat/conversations/:id/members/:uid/ban` | ✅   | Ban thành viên                        |
+| DELETE | `/api/chat/conversations/:id/members/:uid/ban` | ✅   | Unban thành viên                      |
+| PATCH  | `/api/chat/conversations/:id/me`               | ✅   | Cài đặt cá nhân (pin/archive/mute)    |
+| GET    | `/api/chat/conversations/:id/members`          | ✅   | Danh sách thành viên nhóm             |
+| POST   | `/api/chat/conversations/:id/members`          | ✅   | Thêm thành viên (owner/admin)         |
+| DELETE | `/api/chat/conversations/:id/members`          | ✅   | Xóa thành viên (owner/admin)          |
+| POST   | `/api/chat/conversations/:id/leave`            | ✅   | Rời nhóm (không phải owner)           |
+| PATCH  | `/api/chat/conversations/:id`                  | ✅   | Cập nhật nhóm (tên/ảnh/mô tả)         |
+| PATCH  | `/api/chat/conversations/:id/role`             | ✅   | Thay đổi vai trò (owner only)         |
+| PATCH  | `/api/chat/conversations/:id/transfer`         | ✅   | Chuyển quyền chủ nhóm                 |
+| DELETE | `/api/chat/conversations/:id`                  | ✅   | Giải tán nhóm (owner only)            |
 
 ### Upload Service
 
@@ -1350,10 +1374,11 @@ handleMessageRevoked(event) {
 
 ### User Service
 
-| Method | Path                     | Auth | Mô tả            |
-| ------ | ------------------------ | ---- | ---------------- |
-| PATCH  | `/api/users/:id/profile` | ✅   | Cập nhật profile |
-| GET    | `/api/users/search`      | ✅   | Tìm kiếm user    |
+| Method | Path                     | Auth | Mô tả                           |
+| ------ | ------------------------ | ---- | ------------------------------- |
+| PATCH  | `/api/users/:id/profile` | ✅   | Cập nhật profile                |
+| GET    | `/api/users/search`      | ✅   | Tìm kiếm user                   |
+| POST   | `/api/users/batch`       | ✅   | Lấy profiles theo danh sách IDs |
 
 ---
 
@@ -1810,66 +1835,73 @@ File card trong `MessageBubble` ([id].tsx) được cải thiện:
 
 Hệ thống hỗ trợ nhóm chat với phân quyền RBAC (Role-Based Access Control) gồm 3 vai trò:
 
-| Vai trò | Quyền |
-|---------|-------|
-| **Owner** (Chủ nhóm) | Toàn quyền: thêm/xóa thành viên, thay đổi vai trò, chuyển quyền, giải tán nhóm, cập nhật thông tin |
-| **Admin** (Phó nhóm) | Thêm thành viên, xóa thành viên (trừ owner/admin khác), cập nhật thông tin nhóm |
-| **Member** (Thành viên) | Xem, chat, rời nhóm |
+| Vai trò                 | Quyền                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Owner** (Chủ nhóm)    | Toàn quyền: thêm/xóa thành viên, thay đổi vai trò, chuyển quyền, giải tán nhóm, cập nhật thông tin, cài đặt nhóm |
+| **Admin** (Phó nhóm)    | Thêm thành viên, xóa thành viên (trừ owner/admin khác), cập nhật thông tin nhóm, ghim tin nhắn                   |
+| **Member** (Thành viên) | Xem, chat, rời nhóm (khi `allowMemberInvite=true`: được thêm thành viên)                                         |
+
+> **Giới hạn admin**: Một nhóm tối đa **5 admin** (không tính owner). Khi đã đủ 5 admin, `changeRole` sẽ throw `BadRequestException`.
+
+> **System messages**: Mỗi hành động quản lý nhóm (thêm/xóa/rời/đổi vai trò/chuyển quyền/giải tán) tự động tạo một tin nhắn hệ thống (type=`'system'`) kèm **tên người thực hiện** (`actorName` từ JWT payload). Ví dụ: _"Nguyễn Văn A đã thêm Trần Thị B vào nhóm"_.
 
 ### Schema
 
 **Conversation** — thêm field `description`:
+
 ```
 description?: String  // Mô tả nhóm (tối đa 500 ký tự)
 ```
 
 **Participant** — thêm field `role`:
+
 ```
 role: 'owner' | 'admin' | 'member'  // default: 'member'
 ```
 
 ### API Endpoints (chat-service → qua API Gateway)
 
-| Method | Endpoint | Mô tả | Quyền |
-|--------|----------|-------|-------|
-| `GET` | `/api/chat/conversations/:id/members` | Lấy danh sách thành viên | Participant |
-| `POST` | `/api/chat/conversations/:id/members` | Thêm thành viên | Owner, Admin |
-| `DELETE` | `/api/chat/conversations/:id/members` | Xóa thành viên | Owner, Admin |
-| `POST` | `/api/chat/conversations/:id/leave` | Rời nhóm | Participant (trừ Owner) |
-| `PATCH` | `/api/chat/conversations/:id` | Cập nhật thông tin nhóm | Owner, Admin |
-| `PATCH` | `/api/chat/conversations/:id/role` | Thay đổi vai trò thành viên | Owner |
-| `PATCH` | `/api/chat/conversations/:id/transfer` | Chuyển quyền chủ nhóm | Owner |
-| `DELETE` | `/api/chat/conversations/:id` | Giải tán nhóm | Owner |
+| Method   | Endpoint                               | Mô tả                       | Quyền                   |
+| -------- | -------------------------------------- | --------------------------- | ----------------------- |
+| `GET`    | `/api/chat/conversations/:id/members`  | Lấy danh sách thành viên    | Participant             |
+| `POST`   | `/api/chat/conversations/:id/members`  | Thêm thành viên             | Owner, Admin            |
+| `DELETE` | `/api/chat/conversations/:id/members`  | Xóa thành viên              | Owner, Admin            |
+| `POST`   | `/api/chat/conversations/:id/leave`    | Rời nhóm                    | Participant (trừ Owner) |
+| `PATCH`  | `/api/chat/conversations/:id`          | Cập nhật thông tin nhóm     | Owner, Admin            |
+| `PATCH`  | `/api/chat/conversations/:id/role`     | Thay đổi vai trò thành viên | Owner                   |
+| `PATCH`  | `/api/chat/conversations/:id/transfer` | Chuyển quyền chủ nhóm       | Owner                   |
+| `DELETE` | `/api/chat/conversations/:id`          | Giải tán nhóm               | Owner                   |
 
 ### Kafka Events
 
-| Event | Payload chính | Mô tả |
-|-------|--------------|-------|
-| `chat.group.members_added` | conversationId, addedUserIds, participants | Thành viên mới được thêm |
-| `chat.group.member_removed` | conversationId, removedUserId, participants | Thành viên bị xóa |
-| `chat.group.member_left` | conversationId, userId, participants | Thành viên rời nhóm |
-| `chat.group.updated` | conversationId, name?, avatar?, description? | Thông tin nhóm được cập nhật |
-| `chat.group.role_changed` | conversationId, targetUserId, newRole | Vai trò thành viên thay đổi |
-| `chat.group.dissolved` | conversationId, participants | Nhóm bị giải tán |
-| `chat.group.owner_transferred` | conversationId, oldOwnerId, newOwnerId | Chuyển quyền chủ nhóm |
+| Event                          | Payload chính                                | Mô tả                        |
+| ------------------------------ | -------------------------------------------- | ---------------------------- |
+| `chat.group.members_added`     | conversationId, addedUserIds, participants   | Thành viên mới được thêm     |
+| `chat.group.member_removed`    | conversationId, removedUserId, participants  | Thành viên bị xóa            |
+| `chat.group.member_left`       | conversationId, userId, participants         | Thành viên rời nhóm          |
+| `chat.group.updated`           | conversationId, name?, avatar?, description? | Thông tin nhóm được cập nhật |
+| `chat.group.role_changed`      | conversationId, targetUserId, newRole        | Vai trò thành viên thay đổi  |
+| `chat.group.dissolved`         | conversationId, participants                 | Nhóm bị giải tán             |
+| `chat.group.owner_transferred` | conversationId, oldOwnerId, newOwnerId       | Chuyển quyền chủ nhóm        |
 
 ### Socket Events (Gateway → Client)
 
 Gateway consumer (`group-events.consumer.ts`) nhận Kafka events và emit tới tất cả participants qua Socket.io:
 
-| Socket Event | Xử lý client |
-|-------------|--------------|
-| `group:members_added` | Cập nhật participants, nếu user mới được thêm → refetch conversations |
-| `group:member_removed` | Xóa participant, nếu user bị xóa → refetch conversations |
-| `group:member_left` | Xóa participant khỏi danh sách |
-| `group:updated` | Cập nhật tên/avatar/mô tả nhóm |
-| `group:role_changed` | Cập nhật vai trò thành viên |
-| `group:dissolved` | Xóa conversation khỏi danh sách |
-| `group:owner_transferred` | Cập nhật vai trò owner/member |
+| Socket Event              | Xử lý client                                                          |
+| ------------------------- | --------------------------------------------------------------------- |
+| `group:members_added`     | Cập nhật participants, nếu user mới được thêm → refetch conversations |
+| `group:member_removed`    | Xóa participant, nếu user bị xóa → refetch conversations              |
+| `group:member_left`       | Xóa participant khỏi danh sách                                        |
+| `group:updated`           | Cập nhật tên/avatar/mô tả nhóm                                        |
+| `group:role_changed`      | Cập nhật vai trò thành viên                                           |
+| `group:dissolved`         | Xóa conversation khỏi danh sách                                       |
+| `group:owner_transferred` | Cập nhật vai trò owner/member                                         |
 
 ### Luồng hoạt động
 
 #### Tạo nhóm
+
 ```
 User → POST /api/chat/conversations { type: 'group', participantIds: [...], name: 'Tên nhóm' }
 → chat-service: Creator = owner, others = member
@@ -1878,6 +1910,7 @@ User → POST /api/chat/conversations { type: 'group', participantIds: [...], na
 ```
 
 #### Thêm thành viên
+
 ```
 Owner/Admin → POST /api/chat/conversations/:id/members { memberIds: [...] }
 → chat-service: Verify role, add participants, insert system message
@@ -1886,6 +1919,7 @@ Owner/Admin → POST /api/chat/conversations/:id/members { memberIds: [...] }
 ```
 
 #### Chuyển quyền chủ nhóm
+
 ```
 Owner → PATCH /api/chat/conversations/:id/transfer { newOwnerId }
 → chat-service: Old owner → member, new owner → owner
@@ -1894,6 +1928,7 @@ Owner → PATCH /api/chat/conversations/:id/transfer { newOwnerId }
 ```
 
 #### Giải tán nhóm
+
 ```
 Owner → DELETE /api/chat/conversations/:id
 → chat-service: Delete all messages + conversation
@@ -1904,6 +1939,7 @@ Owner → DELETE /api/chat/conversations/:id
 ### Files liên quan
 
 **Backend:**
+
 - `services/chat/src/chat/schemas/conversation.schema.ts` — Schema với role + description
 - `services/chat/src/chat/chat.service.ts` — 8 phương thức quản lý nhóm
 - `services/chat/src/chat/chat.controller.ts` — 8 HTTP endpoints
@@ -1913,14 +1949,511 @@ Owner → DELETE /api/chat/conversations/:id
 - `gateway/api-gateway/src/socket/group-events.consumer.ts` — Kafka consumer cho group events
 
 **Web Frontend:**
+
 - `apps/web/src/store/slices/chatSlice.ts` — 8 thunks + 7 socket reducers
 - `apps/web/src/providers/ChatSocketInitializer.tsx` — 7 group event listeners
 - `apps/web/src/pages/private/chat/components/CreateGroupModal.tsx` — Modal tạo nhóm
 - `apps/web/src/pages/private/chat/components/GroupInfoPanel.tsx` — Panel quản lý nhóm
 
 **Mobile App:**
+
 - `apps/mobile/src/store/chatStore.ts` — 7 group actions + 7 socket handlers
 - `apps/mobile/src/hooks/useChatSocket.ts` — 7 group event listeners
 - `apps/mobile/app/create-group.tsx` — Màn hình tạo nhóm
 - `apps/mobile/app/group-info/[id].tsx` — Màn hình thông tin nhóm
 - `apps/mobile/app/conversation/[id].tsx` — Hiển thị system messages + sender name trong nhóm
+
+---
+
+## 27. Bug Fixes & Cải thiện Nhóm Chat (2026-04-07)
+
+### 27.1 Sửa lỗi Field Name Mismatch giữa Backend và Frontend
+
+**Vấn đề:** Backend Kafka events sử dụng tên trường khác với frontend socket handlers, dẫn đến các tính năng real-time không hoạt động.
+
+| Event                  | Backend gửi                 | Frontend mong đợi         | Ảnh hưởng                            |
+| ---------------------- | --------------------------- | ------------------------- | ------------------------------------ |
+| `group:role_changed`   | `memberId`                  | `targetUserId`            | Nâng/hạ quyền không cập nhật liền    |
+| `group:updated`        | `changes: { name, avatar }` | `{ name, avatar }` (flat) | Đổi tên/ảnh nhóm không cập nhật liền |
+| `group:member_removed` | `removedMemberId`           | `removedUserId`           | Xóa thành viên không phản ánh        |
+| `group:members_added`  | `newMemberIds`              | `addedUserIds`            | Thành viên mới không thấy nhóm       |
+
+**Giải pháp:** Normalize payload trong socket handler trước khi dispatch vào store:
+
+```typescript
+// ChatSocketInitializer.tsx (Web)
+const onGroupRoleChanged = (payload: any) => {
+  const targetUserId = payload.targetUserId || payload.memberId;
+  dispatch(socketGroupRoleChanged({ ...payload, targetUserId }));
+};
+
+const onGroupUpdated = (payload: any) => {
+  const normalized = { conversationId: payload.conversationId, ...payload.changes };
+  dispatch(socketGroupUpdated(normalized));
+};
+
+const onGroupMemberRemoved = (payload: any) => {
+  const removedUserId = payload.removedUserId || payload.removedMemberId;
+  dispatch(socketGroupMemberRemoved({ ...payload, removedUserId }));
+};
+```
+
+**Files thay đổi:**
+
+- `apps/web/src/providers/ChatSocketInitializer.tsx` — Normalize tất cả field name
+- `apps/mobile/src/hooks/useChatSocket.ts` — Cùng logic normalize
+- `gateway/api-gateway/src/socket/group-events.consumer.ts` — Fix `removedUserId` field
+
+### 27.2 Tạo nhóm không thông báo thành viên khác
+
+**Vấn đề:** `createConversation` trong chat-service không emit Kafka event khi tạo nhóm → các thành viên khác (ngoài người tạo) phải refresh trang mới thấy nhóm mới.
+
+**Giải pháp:** Emit `GROUP_MEMBERS_ADDED` event sau khi tạo nhóm:
+
+```typescript
+// chat.service.ts
+if (dto.type === 'group') {
+  const otherMemberIds = allParticipantIds.filter((id) => id !== userId);
+  await this.kafkaProducer.emit(CHAT_EVENTS.GROUP_MEMBERS_ADDED, {
+    conversationId: conversation._id.toString(),
+    addedBy: userId,
+    newMemberIds: otherMemberIds,
+    participants: allParticipantIds,
+  });
+}
+```
+
+**File thay đổi:** `services/chat/src/chat/chat.service.ts`
+
+### 27.3 Batch User Profile API
+
+**Vấn đề:** Trong nhóm chat, thành viên không phải bạn bè không hiển thị tên/avatar (do `friends.find()` trả về null).
+
+**Giải pháp:**
+
+- Backend: `POST /api/users/batch` nhận `{ userIds: string[] }`, trả về `UserProfile[]`
+- Frontend: `fetchGroupMemberProfiles` thunk cache profiles, fallback khi `friends.find()` null
+
+**Files thay đổi:**
+
+- `services/user/src/user/user.controller.ts` — Endpoint `POST /batch`
+- `services/user/src/user/user.service.ts` — `findByIds()` method
+- `apps/web/src/services/userServices.ts` — API client (new file)
+- `apps/web/src/store/slices/chatSlice.ts` — `groupMemberProfiles` state + thunk
+
+### 27.4 Cải thiện Image Grid (Mobile)
+
+**Vấn đề:** Mobile ImageGrid hiển thị ảnh cố định 100×100px, không tối ưu layout như web.
+
+**Giải pháp:** Cập nhật `ImageGrid` component trong mobile:
+
+- 1 ảnh: hiển thị 60% width màn hình, vuông, bo góc 12px
+- 2 ảnh: 2 cột cạnh nhau, mỗi ảnh chiếm 50% grid width
+- 3 ảnh: 1 ảnh lớn trên + 2 ảnh nhỏ dưới (giống web)
+- 4+ ảnh: 2×2 grid với overlay `+N` cho ảnh thừa
+
+**File thay đổi:** `apps/mobile/app/conversation/[id].tsx`
+
+---
+
+## 28. Hệ thống Presence (Hoạt động trực tuyến)
+
+### Mô tả
+
+Hiển thị trạng thái online/offline và "Hoạt động X phút trước" cho từng user, tương tự Facebook Messenger.
+
+### Kiến trúc
+
+```
+┌─────────────┐    connect/disconnect    ┌──────────────────────┐
+│   Client    │ ◄──────────────────────► │  Socket Gateway      │
+│ (Web/Mobile)│                          │  userSockets Map     │
+│             │    user:online           │  lastSeen Map        │
+│             │ ◄────────────────────────│                      │
+│             │    user:offline          │  isUserOnline()      │
+│             │ ◄────────────────────────│                      │
+│             │                          │                      │
+│             │    presence:check ──────►│  @SubscribeMessage   │
+│             │ ◄── presence:result ────│  returns batch status │
+└─────────────┘                          └──────────────────────┘
+```
+
+### Backend — Socket Gateway
+
+Thêm vào `socket.gateway.ts`:
+
+| Thành phần                      | Mô tả                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| `lastSeen: Map<string, string>` | Lưu timestamp ISO khi user disconnect                                                      |
+| `handleDisconnect`              | Khi socket cuối disconnect → lưu lastSeen, emit `user:offline`                             |
+| `handleJoin`                    | Khi socket đầu connect → emit `user:online`                                                |
+| `presence:check`                | Client gửi `{ userIds: string[] }` → server trả `presence:result` với trạng thái từng user |
+
+### Frontend — Redux / Zustand State
+
+```typescript
+interface PresenceInfo {
+  online: boolean;
+  lastSeen?: string; // ISO timestamp
+}
+
+// State
+userPresence: Record<string, PresenceInfo>;
+
+// Reducers
+setUserOnline({ userId }); // → { online: true }
+setUserOffline({ userId, lastSeen }); // → { online: false, lastSeen }
+setPresenceBatch(Record<string, PresenceInfo>); // batch update
+```
+
+### Frontend — Hiển thị
+
+**ChatRoom header:**
+
+- Chat đơn: `"Đang hoạt động"` (xanh lá) hoặc `"Hoạt động 5 phút trước"` (xám)
+- Chat nhóm: `"8 thành viên · 3 đang hoạt động"`
+
+**ConversationList:**
+
+- Avatar có chấm xanh/xám dựa vào `userPresence[otherUserId]?.online`
+
+**Socket events đăng ký:**
+
+- `user:online` → `setUserOnline`
+- `user:offline` → `setUserOffline`
+- `presence:result` → `setPresenceBatch`
+
+**Emit khi mở conversation:**
+
+```typescript
+appSocket.emit('presence:check', { userIds: [...participantIds] });
+```
+
+### Files liên quan
+
+- `gateway/api-gateway/src/socket/socket.gateway.ts` — Presence tracking logic
+- `apps/web/src/store/slices/chatSlice.ts` — `userPresence` state + reducers
+- `apps/web/src/providers/ChatSocketInitializer.tsx` — Socket event listeners
+- `apps/web/src/pages/private/chat/components/ChatRoom.tsx` — Header hiển thị + emit check
+- `apps/web/src/pages/private/chat/components/ConversationList.tsx` — Online dot
+- `apps/web/src/services/appSocket.ts` — Thêm `emit()` method
+- `apps/web/src/components/UserAvatar.tsx` — `online` prop hiển thị chấm xanh/xám
+
+---
+
+## 29. Chỉnh sửa Tin nhắn (Edit Message)
+
+### Điều kiện
+
+- Chỉ người gửi mới được chỉnh sửa (`senderId === currentUserId`)
+- Trong vòng **30 phút** kể từ lúc gửi (`EDIT_WINDOW_MS = 30 * 60 * 1000`)
+- Không chỉnh sửa tin đã thu hồi
+- Không chỉnh sửa tin nhắn hệ thống (`type = 'system'`)
+
+### Hành vi
+
+- Sau khi chỉnh sửa: `isEdited = true`, `editedAt = new Date()`
+- Tất cả participants nhận socket event `message:edited`
+- UI hiển thị nhãn _"(đã chỉnh sửa)"_ kèm timestamp dưới nội dung
+
+### Luồng
+
+```
+[User hover tin nhắn → click "Chỉnh sửa" (Pencil icon)]
+     ↓
+[MessageInput vào chế độ edit: hiển thị banner "Đang chỉnh sửa" + nội dung cũ điền sẵn]
+     ↓
+[User sửa nội dung + Enter / nhấn "Lưu"]
+     ↓
+dispatch(editMessage({ messageId, content }))
+PATCH /api/chat/messages/:id
+Body: { content: "nội dung mới" }
+     ↓
+[Chat Service — editMessage()]
+1. Tìm message
+2. Kiểm tra senderId === userId
+3. Kiểm tra elapsed < EDIT_WINDOW_MS
+4. msg.content = dto.content; msg.isEdited = true; msg.editedAt = new Date()
+5. Emit Kafka: chat.message.edited { messageId, conversationId, participants, content, editedAt }
+     ↓
+[Gateway → ChatEventsConsumer]
+6. emitToUser(uid, 'message:edited', event) cho TẤT CẢ participants
+     ↓
+[Client nhận 'message:edited']
+7. dispatch(socketMessageEdited(payload))
+   → Cập nhật content + isEdited + editedAt trong store
+     ↓
+[MessageBubble re-render]
+8. Hiển thị nội dung mới + "(đã chỉnh sửa)" màu xám dưới text
+```
+
+### API
+
+| Method | Path                     | Auth | Body              | Response        |
+| ------ | ------------------------ | ---- | ----------------- | --------------- |
+| PATCH  | `/api/chat/messages/:id` | ✅   | `{ content: "" }` | Updated message |
+
+### Socket Event
+
+| Event            | Payload                                            |
+| ---------------- | -------------------------------------------------- |
+| `message:edited` | `{ messageId, conversationId, content, editedAt }` |
+
+---
+
+## 30. Ghim Tin nhắn (Pin Message)
+
+### Điều kiện
+
+- Chat đơn (direct): cả hai participants đều có thể ghim
+- Chat nhóm (group): chỉ owner/admin mới được ghim
+- Tối đa **50 tin nhắn** được ghim mỗi conversation
+- Không ghim tin nhắn đã thu hồi
+
+### Schema
+
+Trường `pinnedMessages: PinnedMessage[]` trong `Conversation` (xem [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)):
+
+```
+pinnedMessages[]: { messageId, pinnedBy, pinnedAt }
+```
+
+### API
+
+| Method | Path                                 | Auth | Mô tả                     |
+| ------ | ------------------------------------ | ---- | ------------------------- |
+| POST   | `/api/chat/messages/:id/pin`         | ✅   | Ghim tin nhắn             |
+| DELETE | `/api/chat/messages/:id/pin`         | ✅   | Bỏ ghim tin nhắn          |
+| GET    | `/api/chat/conversations/:id/pinned` | ✅   | Lấy danh sách tin đã ghim |
+
+### Socket Events
+
+| Event              | Payload                                             |
+| ------------------ | --------------------------------------------------- |
+| `message:pinned`   | `{ messageId, conversationId, pinnedBy, pinnedAt }` |
+| `message:unpinned` | `{ messageId, conversationId }`                     |
+
+### UI — Pinned Message Banner
+
+- **Banner đa ghim**: hiển thị tin ghim hiện tại với cỏ (N/total) khi có nhiều tin ghìm
+- Nút `ChevronDown` (↵) để cycle qua lần lượt tựng tin đã ghim
+- Click vào nội dung banner → scroll đến tin gốc + highlight 2 giây
+- **Thông báo kiểu Zalo**: sau khi ghim/bỏ ghim, hiển thị thanh đen mỏ nhạt phía dưới vùng tin nhắn (tự ẩn sau 4s):
+  ```
+  📌 Bạn đã ghim 1 tin nhắn [preview...] • Xem
+  ```
+- Nhấn **Xem** để scroll tới đúng tin đó
+
+---
+
+## 31. Cài đặt Nhóm Chat (Conversation Settings)
+
+### Điều kiện
+
+- Chỉ **owner** mới được thay đổi cài đặt nhóm
+
+### Các cài đặt
+
+| Setting                    | Default | Mô tả                                                     |
+| -------------------------- | ------- | --------------------------------------------------------- |
+| `onlyAdminCanSend`         | `false` | Khi `true`: chỉ owner/admin được gửi tin; member bị block |
+| `allowMemberInvite`        | `true`  | Khi `false`: chỉ owner/admin được thêm thành viên mới     |
+| `onlyAdminCanPin`          | `false` | Khi `true`: chỉ owner/admin được ghim tin nhắn            |
+| `requireJoinApproval`      | `false` | (Reserved) Duyệt thành viên trước khi vào nhóm            |
+| `chatHistoryForNewMembers` | `true`  | (Reserved) Cho phép member mới xem lịch sử cũ             |
+
+### Enforcement
+
+- `sendMessage`: kiểm tra `participant.isBanned` và `settings.onlyAdminCanSend`
+- `addMembers`: kiểm tra `settings.allowMemberInvite` khi caller là `member`
+- `pinMessage` / `unpinMessage`: kiểm tra `settings.onlyAdminCanPin`; khi `true` chỉ owner/admin được thao tác
+
+### UI Frontend
+
+- **Web**: Toggle button trong `GroupInfoPanel.tsx` (mục Cài đặt nhóm, chỉ hiển với owner)
+- **Mobile**: Toggle button trong màn hình `GroupInfoScreen` (group-info/[id].tsx), chỉ hiển với owner
+- Khi `onlyAdminCanSend = true` và người dùng hiện tại không phải owner/admin:
+  - Ờ nhập tin nhắn bị ẩn/thay thế bằng thanh thông báo:
+  ```
+  ⓘ Chỉ trưởng/phó cộng đồng được gửi tin nhắn vào cộng đồng.
+  ```
+- Khi `onlyAdminCanPin = true` và người dùng không phải owner/admin:
+  - Tùy chọn **Ghim tin nhắn** bị ẩn khỏi context menu (long-press) trên cả web lẫn mobile
+- Cập nhật trạng thái toggle ngay lập tức (optimistic update) trước khi server xác nhận
+- Socket event `conversation:settings` cũng cập nhật Redux/Zustand state để đồng bộ realtime cho các thiết bị khác
+
+### API
+
+| Method | Path                                   | Auth | Body                                             | Mô tả                    |
+| ------ | -------------------------------------- | ---- | ------------------------------------------------ | ------------------------ |
+| PATCH  | `/api/chat/conversations/:id/settings` | ✅   | `{ onlyAdminCanSend?, allowMemberInvite?, ... }` | Cập nhật cài đặt (owner) |
+
+### Socket Event
+
+| Event                   | Payload                        |
+| ----------------------- | ------------------------------ |
+| `conversation:settings` | `{ conversationId, settings }` |
+
+---
+
+## 32. Ban Thành viên (Member Ban)
+
+### Điều kiện
+
+- Chỉ **owner/admin** mới được ban thành viên
+- Admin không được ban admin hoặc owner khác
+- Ban có thể có thời hạn (`bannedUntil`) hoặc vĩnh viễn (`bannedUntil = null`)
+
+### Hành vi
+
+- Khi bị ban: `participant.isBanned = true`, `participant.bannedUntil = DateOrNull`
+- `sendMessage` tự động kiểm tra: nếu `bannedUntil` đã hết hạn → auto unban trước khi cho gửi
+- Member bị ban nhận socket event `member:banned`
+
+### UI Frontend (thành viên bị cấm)
+
+Khi người dùng đang bị cấm (`isBanned = true`):
+
+- **Web**: Ô input bị thay thế bằng thanh đỏ (`bg-red-50`):
+  ```
+  🚫 Bạn đang bị cấm gửi tin nhắn trong nhóm này.
+  ```
+- **Mobile**: Tương tự, thanh nền đỏ thay thế input area
+- **Danh sách thành viên** (bộ nhìn của admin/owner): Thành viên bị cấm hiện badge **"Bị cấm"** đỏ kề tên
+- **Bộ nhìn admin/owner**: Có nút **Hủy cấm** (icon Ban màu xanh lá) trong member action sheet/list, click → gọi `DELETE .../ban`
+
+### API
+
+| Method | Path                                           | Auth | Body               | Mô tả            |
+| ------ | ---------------------------------------------- | ---- | ------------------ | ---------------- |
+| POST   | `/api/chat/conversations/:id/members/:uid/ban` | ✅   | `{ bannedUntil? }` | Ban thành viên   |
+| DELETE | `/api/chat/conversations/:id/members/:uid/ban` | ✅   | —                  | Unban thành viên |
+
+### Socket Events
+
+| Event             | Payload                                         |
+| ----------------- | ----------------------------------------------- |
+| `member:banned`   | `{ conversationId, targetUserId, bannedUntil }` |
+| `member:unbanned` | `{ conversationId, targetUserId }`              |
+
+---
+
+## 33. Cài đặt Cá nhân Cuộc trò chuyện (Per-user Settings)
+
+Mỗi participant có thể cài đặt riêng cho conversation mà **không ảnh hưởng** đến người khác.
+
+### Các cài đặt
+
+| Trường       | Giá trị        | Mô tả                                             |
+| ------------ | -------------- | ------------------------------------------------- |
+| `isPinned`   | `boolean`      | Ghim conversation lên đầu danh sách               |
+| `isArchived` | `boolean`      | Ẩn khỏi danh sách chính, vào thư mục "Đã lưu trữ" |
+| `isMuted`    | `boolean`      | Tắt thông báo push cho conversation này           |
+| `muteUntil`  | `Date \| null` | Tắt thông báo đến một thời điểm cụ thể            |
+
+### API
+
+| Method | Path                             | Auth | Body                                               | Mô tả               |
+| ------ | -------------------------------- | ---- | -------------------------------------------------- | ------------------- |
+| PATCH  | `/api/chat/conversations/:id/me` | ✅   | `{ isPinned?, isArchived?, isMuted?, muteUntil? }` | Lưu cài đặt cá nhân |
+
+---
+
+## 34. Typing Indicator
+
+### Kiến trúc
+
+Typing indicator được xử lý **hoàn toàn qua Socket.io** — không qua Kafka, không lưu DB.
+
+```
+[User bắt đầu gõ (debounce 300ms)]
+     ↓
+appSocket.emit('typing:start', { conversationId, userId })
+     ↓
+[Socket Gateway]
+typingUsers.get(conversationId).set(userId, timeout)
+setTimeout(() => auto-clear sau 5 giây
+broadcastTyping(conversationId):
+  → emit 'typing:update' { conversationId, typingUserIds: [...] }
+  → đến conversation:{conversationId} room (trừ sender)
+     ↓
+[Client nhận 'typing:update']
+dispatch(setTypingUsers({ conversationId, userIds }))
+     ↓
+[ChatRoom header / input area]
+Hiển thị "Nguyễn Văn A đang gõ..." hoặc "3 người đang gõ..."
+```
+
+### Socket Events
+
+| Direction       | Event           | Payload                                       |
+| --------------- | --------------- | --------------------------------------------- |
+| Client → Server | `typing:start`  | `{ conversationId, userId }`                  |
+| Client → Server | `typing:stop`   | `{ conversationId, userId }`                  |
+| Server → Client | `typing:update` | `{ conversationId, typingUserIds: string[] }` |
+
+### Tham gia Room
+
+Để nhận `typing:update`, client cần join room `conversation:{conversationId}`:
+
+```typescript
+// Khi mở conversation
+appSocket.emit('conversation:join', { conversationId });
+// Khi đóng conversation
+appSocket.emit('conversation:leave', { conversationId });
+```
+
+### Auto-cleanup
+
+- Nếu user dừng gõ mà không emit `typing:stop` → tự động clear sau **5 giây**
+- Khi user disconnect → toàn bộ trạng thái typing bị clear
+
+---
+
+## 35. Mark as Read / Unread Count
+
+### Cơ chế
+
+Mỗi participant có `lastReadAt: Date | null` lưu trong `conversation.participants[]`. Unread count được tính client-side bằng cách đếm message có `createdAt > lastReadAt`.
+
+### Luồng
+
+```
+[User mở conversation / scroll đến cuối]
+     ↓
+POST /api/chat/conversations/:id/read
+     ↓
+[Chat Service — markAsRead()]
+participant.lastReadAt = new Date()
+     ↓
+[Client Redux/Zustand]
+Cập nhật lastReadAt → unreadCount tự động về 0
+     ↓
+[ConversationList]
+Badge số đỏ biến mất
+```
+
+### API
+
+| Method | Path                               | Auth | Mô tả                             |
+| ------ | ---------------------------------- | ---- | --------------------------------- |
+| POST   | `/api/chat/conversations/:id/read` | ✅   | Đặt `lastReadAt = now` cho caller |
+
+### Tính Unread Count (client-side)
+
+```typescript
+// chatSlice/chatStore
+const unreadCount = (conversationId: string) => {
+  const lastRead = myParticipant?.lastReadAt;
+  if (!lastRead) return messages[conversationId]?.length ?? 0;
+  return (
+    messages[conversationId]?.filter(
+      (m) => m.senderId !== currentUserId && new Date(m.createdAt) > new Date(lastRead)
+    ).length ?? 0
+  );
+};
+```
+
+---
+
+_Tài liệu cập nhật lần cuối: 2026-04-08 — Bao gồm tất cả tính năng từ chat_nghiep_vu.docx._

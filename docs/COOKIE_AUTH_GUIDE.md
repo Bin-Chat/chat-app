@@ -517,4 +517,270 @@ docker logs -f chat-redis
 
 ---
 
-✅ **Hệ thống đã sẵn sàng với Cookie-Based Authentication!**
+## 🔒 Single Session Per Device Type — 1 phiên mỗi loại thiết bị
+
+### Nguyên tắc
+
+Mỗi người dùng được đăng nhập **đồng thời trên 2 loại thiết bị** (1 web + 1 mobile). Nhưng **không thể đăng nhập 2 tab/trình duyệt web cùng lúc, hoặc 2 điện thoại cùng lúc**.
+
+| Kịch bản                           | Kết quả             |
+| ---------------------------------- | ------------------- |
+| Laptop A + Điện thoại B            | ✅ Cả 2 hoạt động   |
+| Laptop A + Laptop B (đăng nhập B)  | ⚡ Laptop A bị kick |
+| iPhone A + Android B (đăng nhập B) | ⚡ iPhone A bị kick |
+
+---
+
+### Redis Keys
+
+| Key                                  | Giá trị                           | TTL     |
+| ------------------------------------ | --------------------------------- | ------- |
+| `session:active:{userId}:web`        | `deviceId` của web đang active    | 30 ngày |
+| `session:active:{userId}:mobile`     | `deviceId` của mobile đang active | 30 ngày |
+| `session:device:{userId}:{deviceId}` | JSON metadata (type, name, time)  | 30 ngày |
+| `session:deviceids:{userId}`         | Redis SET chứa tất cả deviceIds   | 30 ngày |
+| `refresh:{userId}:{deviceId}`        | Refresh token                     | 7 ngày  |
+
+**Device metadata JSON:**
+
+```json
+{
+  "deviceType": "web",
+  "deviceName": "Chrome trên Windows",
+  "loginAt": "2026-03-01T10:00:00.000Z"
+}
+```
+
+---
+
+### JWT Payload (mới)
+
+```typescript
+{
+  sub: userId,
+  email: "user@example.com",
+  deviceId: "web-abc123",
+  deviceType: "web",   // ← thêm mới
+  role: "user"
+}
+```
+
+---
+
+### Login Request (mới)
+
+**Web:**
+
+```json
+{
+  "phoneNumber": "0901234567",
+  "password": "password123",
+  "deviceType": "web",
+  "deviceName": "Chrome trên Windows"
+}
+```
+
+**Mobile:**
+
+```json
+{
+  "phoneNumber": "0901234567",
+  "password": "password123",
+  "deviceType": "mobile",
+  "deviceName": "Điện thoại"
+}
+```
+
+---
+
+### Luồng đăng nhập (`generateTokens`)
+
+```mermaid
+sequenceDiagram
+    participant Device B (web mới)
+    participant AuthService
+    participant Redis
+    participant Kafka
+
+    Device B->>AuthService: POST /api/auth/login {deviceType: "web"}
+    AuthService->>Redis: getActiveDevice(userId, "web") → oldWebDeviceId
+    alt oldWebDeviceId ≠ deviceB
+        AuthService->>Redis: deleteRefreshToken(userId, oldWebDeviceId)
+        AuthService->>Redis: clearDeviceInfo + removeFromSet
+        AuthService->>Kafka: auth.session.kicked {userId, deviceType: "web"}
+    end
+    AuthService->>Redis: saveRefreshToken(userId, deviceB)
+    AuthService->>Redis: setActiveDevice(userId, deviceB, "web")
+    AuthService->>Redis: saveDeviceInfo(userId, deviceB, {type, name, loginAt})
+    AuthService->>Redis: addDeviceToSet(userId, deviceB)
+    AuthService-->>Device B: Tokens + cookies
+```
+
+> Điện thoại (mobile session) **không bị ảnh hưởng** khi web đăng nhập lại.
+
+---
+
+### Kiểm tra phiên (`JwtStrategy.validate`)
+
+```typescript
+async validate(payload: JwtPayload) {
+  const user = await findUser(payload.sub);
+  if (!user || !user.isActive) throw UnauthorizedException;
+
+  // Kiểm tra per-type single session
+  const deviceType = payload.deviceType ?? 'web';
+  const activeDevice = await redisService.getActiveDevice(user.id, deviceType);
+  if (activeDevice && activeDevice !== payload.deviceId) {
+    throw new UnauthorizedException(
+      'Phiên đăng nhập đã hết hạn vì tài khoản vừa đăng nhập ở thiết bị khác. Vui lòng đăng nhập lại.'
+    );
+  }
+  return user;
+}
+```
+
+---
+
+### Proactive Kick qua Socket.IO
+
+Khi thiết bị cũ bị dethrone, **Kafka event** được phát để kick proactive (không cần đợi 401):
+
+```
+Auth Service → Kafka (auth.session.kicked) → Gateway → Socket.IO (session:kicked) → Client
+```
+
+**Kafka event payload:**
+
+```json
+{ "userId": "uuid", "deviceType": "web" }
+```
+
+**Socket event payload (emitted to `user:{userId}` room):**
+
+```json
+{ "deviceType": "web", "reason": "Tài khoản đã đăng nhập từ thiết bị web khác" }
+```
+
+**Frontend filter (Web `FriendSocketInitializer.tsx`):**
+
+```typescript
+socket.on('session:kicked', (payload) => {
+  if (payload?.deviceType && payload.deviceType !== 'web') return; // Bỏ qua nếu không phải web
+  dispatch(forceLogout()); // Redux action, không gọi API
+});
+```
+
+**Frontend filter (Mobile `useSessionSocket.ts`):**
+
+```typescript
+socket.on('session:kicked', (payload) => {
+  if (payload?.deviceType && payload.deviceType !== 'mobile') return;
+  Alert.alert('Phiên hết hiệu lực', '...', [{ text: 'OK', onPress: forceLogout }]);
+});
+```
+
+---
+
+### `forceLogout` — Đăng xuất không cần API
+
+Thiết bị bị kick **không thể** gọi `POST /logout` (đã bị revoke → 401). Cả 2 platform dùng action nội bộ:
+
+**Web (Redux action):**
+
+```typescript
+dispatch(forceLogout()); // Xoá localStorage + reset Redux state, không gọi API
+```
+
+**Mobile (Zustand action):**
+
+```typescript
+await forceLogout(); // Xoá cookies + reset store, không gọi API
+```
+
+---
+
+### Quản lý thiết bị
+
+#### API Endpoints
+
+```
+GET    /api/auth/devices          → Danh sách thiết bị đang đăng nhập
+DELETE /api/auth/devices/:deviceId → Đăng xuất từ xa một thiết bị cụ thể
+```
+
+#### Response `GET /api/auth/devices`
+
+```json
+[
+  {
+    "deviceId": "web-abc123",
+    "deviceType": "web",
+    "deviceName": "Chrome trên Windows",
+    "loginAt": "2026-03-01T10:00:00.000Z",
+    "isCurrent": true
+  },
+  {
+    "deviceId": "mobile-xyz789",
+    "deviceType": "mobile",
+    "deviceName": "Điện thoại",
+    "loginAt": "2026-03-01T08:30:00.000Z",
+    "isCurrent": false
+  }
+]
+```
+
+#### Luồng Remote Logout
+
+```
+DELETE /api/auth/devices/:deviceId
+  → deleteRefreshToken(userId, targetDeviceId)
+  → clearActiveDevice(userId, deviceType)
+  → removeDeviceFromSet + clearDeviceInfo
+  → emit Kafka: auth.session.kicked {userId, deviceType}
+  → Gateway → Socket: session:kicked {deviceType}
+  → Target device tự forceLogout
+```
+
+---
+
+### Đăng xuất (`logout` / `logoutAll`)
+
+```typescript
+// logout: một thiết bị
+const deviceInfo = await redisService.getDeviceInfo(userId, deviceId); // lấy deviceType
+await redisService.deleteRefreshToken(userId, deviceId);
+await redisService.clearActiveDevice(userId, deviceInfo.deviceType); // xoá đúng loại
+await redisService.removeDeviceFromSet(userId, deviceId);
+await redisService.clearDeviceInfo(userId, deviceId);
+
+// logoutAll: tất cả thiết bị
+await redisService.deleteAllRefreshTokens(userId);
+await redisService.clearAllActiveDevices(userId); // xoá cả :web và :mobile
+const allIds = await redisService.getAllDeviceIds(userId);
+for (const id of allIds) await redisService.clearDeviceInfo(userId, id);
+await redisService.clearDeviceSet(userId);
+```
+
+---
+
+### Kiểm tra Redis
+
+```bash
+# Xem sessions đang active
+GET session:active:{userId}:web
+GET session:active:{userId}:mobile
+
+# Xem thông tin thiết bị
+GET session:device:{userId}:{deviceId}
+
+# Xem danh sách tất cả deviceIds của user
+SMEMBERS session:deviceids:{userId}
+
+# Xoá thủ công (force logout)
+DEL session:active:{userId}:web
+DEL refresh:{userId}:{deviceId}
+```
+
+---
+
+✅ **Hệ thống đã sẵn sàng với Cookie-Based Authentication và Per-Device-Type Single Session!**

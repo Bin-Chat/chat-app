@@ -110,7 +110,27 @@
 │  │                                                    │                    │
 │  │ + participants: [Participant]                      │                    │
 │  │   └─ userId: String  (UUID ref → auth users.id)   │                    │
+│  │   └─ role: String ENUM('owner','admin','member')  │                    │
 │  │   └─ joinedAt: Date                               │                    │
+│  │   └─ isBanned: Boolean  (default false)           │                    │
+│  │   └─ bannedUntil: Date? (null = vĩnh viễn)        │                    │
+│  │   └─ isPinned: Boolean  (default false)           │                    │
+│  │   └─ isArchived: Boolean (default false)          │                    │
+│  │   └─ isMuted: Boolean   (default false)           │                    │
+│  │   └─ muteUntil: Date?                             │                    │
+│  │   └─ lastReadAt: Date?                            │                    │
+│  │                                                    │                    │
+│  │ + settings: ConversationSettings                  │                    │
+│  │   └─ onlyAdminCanSend: Boolean (default false)    │                    │
+│  │   └─ allowMemberInvite: Boolean (default true)    │                    │
+│  │   └─ onlyAdminCanPin: Boolean  (default false)    │                    │
+│  │   └─ requireJoinApproval: Boolean (default false) │                    │
+│  │   └─ chatHistoryForNewMembers: Boolean (def true) │                    │
+│  │                                                    │                    │
+│  │ + pinnedMessages: [PinnedMessage]   (max 50)      │                    │
+│  │   └─ messageId: ObjectId                          │                    │
+│  │   └─ pinnedBy: String (UUID)                      │                    │
+│  │   └─ pinnedAt: Date                               │                    │
 │  │                                                    │                    │
 │  │ + lastMessage?: LastMessage                        │                    │
 │  │   └─ senderId: String                             │                    │
@@ -132,7 +152,11 @@
 │  │ + _id: ObjectId (PK)                               │                    │
 │  │ + conversationId: ObjectId (FK→conversations._id) │                    │
 │  │ + senderId: String (UUID ref → auth users.id)      │                    │
+│  │ + type: String ENUM default 'text'                │                    │
+│  │     'text'|'image'|'video'|'file'|'voice'|'system'│                    │
 │  │ + content: String = ''                             │                    │
+│  │ + isEdited: Boolean = false                        │                    │
+│  │ + editedAt?: Date = null                           │                    │
 │  │ + revokedAt?: Date = null                          │                    │
 │  │                                                    │                    │
 │  │ + attachments: [Attachment]                        │                    │
@@ -262,25 +286,52 @@
 
 ### 5. `conversations` — chat_service (MongoDB)
 
-| Field          | Type          | Mô tả                                           |
-| -------------- | ------------- | ----------------------------------------------- |
-| `_id`          | ObjectId      | MongoDB auto-generated ID                       |
-| `type`         | String enum   | `'direct'` (2 người) \| `'group'` (nhiều người) |
-| `name`         | String?       | Tên nhóm (chỉ group)                            |
-| `avatar`       | String?       | Ảnh nhóm (chỉ group)                            |
-| `description`  | String?       | Mô tả nhóm (tối đa 500 ký tự, chỉ group)       |
-| `participants` | Participant[] | Danh sách thành viên                            |
-| `lastMessage`  | LastMessage?  | Preview tin nhắn cuối                           |
-| `createdAt`    | Date          | Auto (timestamps: true)                         |
-| `updatedAt`    | Date          | Auto (timestamps: true)                         |
+| Field            | Type                 | Mô tả                                           |
+| ---------------- | -------------------- | ----------------------------------------------- |
+| `_id`            | ObjectId             | MongoDB auto-generated ID                       |
+| `type`           | String enum          | `'direct'` (2 người) \| `'group'` (nhiều người) |
+| `name`           | String?              | Tên nhóm (chỉ group)                            |
+| `avatar`         | String?              | Ảnh nhóm (chỉ group)                            |
+| `description`    | String?              | Mô tả nhóm (tối đa 500 ký tự, chỉ group)        |
+| `participants`   | Participant[]        | Danh sách thành viên (xem subdoc bên dưới)      |
+| `settings`       | ConversationSettings | Cài đặt nhóm (owner-only để thay đổi)           |
+| `pinnedMessages` | PinnedMessage[]      | Danh sách tin nhắn được ghim (tối đa 50)        |
+| `lastMessage`    | LastMessage?         | Preview tin nhắn cuối                           |
+| `createdAt`      | Date                 | Auto (timestamps: true)                         |
+| `updatedAt`      | Date                 | Auto (timestamps: true)                         |
 
 **Embedded: `Participant`**
 
-| Field      | Type   | Mô tả                                            |
-| ---------- | ------ | ------------------------------------------------ |
-| `userId`   | String | UUID của user (ref logic tới auth users.id)      |
-| `role`     | String | `'owner'` \| `'admin'` \| `'member'` (default)  |
-| `joinedAt` | Date   | Ngày tham gia conversation                       |
+| Field         | Type    | Default    | Mô tả                                            |
+| ------------- | ------- | ---------- | ------------------------------------------------ |
+| `userId`      | String  | —          | UUID của user (ref logic tới auth users.id)      |
+| `role`        | String  | `'member'` | `'owner'` \| `'admin'` \| `'member'`             |
+| `joinedAt`    | Date    | now        | Ngày tham gia conversation                       |
+| `isBanned`    | Boolean | false      | Thành viên đang bị cấm gửi tin                   |
+| `bannedUntil` | Date?   | null       | Thời điểm hết hạn ban (null = vĩnh viễn)         |
+| `isPinned`    | Boolean | false      | User đã ghim conversation này vào đầu danh sách  |
+| `isArchived`  | Boolean | false      | User đã lưu trữ conversation (ẩn khỏi main list) |
+| `isMuted`     | Boolean | false      | User đã tắt thông báo của conversation           |
+| `muteUntil`   | Date?   | null       | Tắt thông báo đến khi (null = vô thới hạn)       |
+| `lastReadAt`  | Date?   | null       | Lần cuối đọc tin nhắn (để tính unread count)     |
+
+**Embedded: `ConversationSettings`** _(chỉ group, owner-only)_
+
+| Field                      | Type    | Default | Mô tả                                       |
+| -------------------------- | ------- | ------- | ------------------------------------------- |
+| `onlyAdminCanSend`         | Boolean | false   | Chỉ owner/admin được gửi tin                |
+| `allowMemberInvite`        | Boolean | true    | Member được thêm thành viên mới             |
+| `onlyAdminCanPin`          | Boolean | false   | Chỉ owner/admin được ghim tin nhắn          |
+| `requireJoinApproval`      | Boolean | false   | Cần owner/admin duyệt khi có người tham gia |
+| `chatHistoryForNewMembers` | Boolean | true    | Thành viên mới xem được lịch sử trò chuyện  |
+
+**Embedded: `PinnedMessage`** _(max 50 per conversation)_
+
+| Field       | Type     | Mô tả                                 |
+| ----------- | -------- | ------------------------------------- |
+| `messageId` | ObjectId | Ref → messages.\_id                   |
+| `pinnedBy`  | String   | UUID người ghim (phải là participant) |
+| `pinnedAt`  | Date     | Thời điểm ghim                        |
 
 **Embedded: `LastMessage`**
 
@@ -300,21 +351,24 @@
 
 ### 6. `messages` — chat_service (MongoDB)
 
-| Field            | Type          | Mô tả                                            |
-| ---------------- | ------------- | ------------------------------------------------ |
-| `_id`            | ObjectId      | MongoDB auto-generated ID                        |
-| `conversationId` | ObjectId      | FK → conversations.\_id                          |
-| `senderId`       | String        | UUID người gửi (ref auth users.id)               |
-| `content`        | String        | Nội dung text (default `''`)                     |
-| `revokedAt`      | Date?         | Thời điểm thu hồi (null = chưa thu hồi)          |
-| `attachments`    | Attachment[]  | Danh sách file đính kèm                          |
-| `reactions`      | Reaction[]    | Danh sách emoji reactions                        |
-| `deletedFor`     | String[]      | Mảng userId đã xóa tin (soft delete)             |
-| `readBy`         | ReadReceipt[] | Mảng userId đã đọc                               |
-| `forwardedFrom`  | ForwardInfo?  | Metadata nếu là tin chuyển tiếp                  |
-| `replyTo`        | ReplyInfo?    | Metadata tin trả lời (null nếu không phải reply) |
-| `createdAt`      | Date          | Auto                                             |
-| `updatedAt`      | Date          | Auto                                             |
+| Field            | Type          | Mô tả                                                                    |
+| ---------------- | ------------- | ------------------------------------------------------------------------ |
+| `_id`            | ObjectId      | MongoDB auto-generated ID                                                |
+| `conversationId` | ObjectId      | FK → conversations.\_id                                                  |
+| `senderId`       | String        | UUID người gửi (ref auth users.id)                                       |
+| `type`           | String enum   | `'text'\|'image'\|'video'\|'file'\|'voice'\|'system'` (default `'text'`) |
+| `content`        | String        | Nội dung text (default `''`)                                             |
+| `isEdited`       | Boolean       | Có đã được chỉnh sửa không (default `false`)                             |
+| `editedAt`       | Date?         | Thời điểm chỉnh sửa gần nhất (null = chưa chỉnh sửa)                     |
+| `revokedAt`      | Date?         | Thời điểm thu hồi (null = chưa thu hồi)                                  |
+| `attachments`    | Attachment[]  | Danh sách file đính kèm                                                  |
+| `reactions`      | Reaction[]    | Danh sách emoji reactions                                                |
+| `deletedFor`     | String[]      | Mảng userId đã xóa tin (soft delete)                                     |
+| `readBy`         | ReadReceipt[] | Mảng userId đã đọc                                                       |
+| `forwardedFrom`  | ForwardInfo?  | Metadata nếu là tin chuyển tiếp                                          |
+| `replyTo`        | ReplyInfo?    | Metadata tin trả lời (null nếu không phải reply)                         |
+| `createdAt`      | Date          | Auto                                                                     |
+| `updatedAt`      | Date          | Auto                                                                     |
 
 **Embedded: `Attachment`**
 
@@ -336,6 +390,8 @@
 | -------- | ------ | ------------------------ |
 | `userId` | String | UUID người react         |
 | `emoji`  | String | Ký tự emoji (vd: `'👍'`) |
+
+> **Ràng buộc**: mỗi `userId` chỉ có **tối đa 1 reaction** trên mỗi message. Khi toggle cùng emoji → xóa. Khi chọn emoji khác → thay thế (remove + add). Không cho phép nhiều emoji cùng một người.
 
 **Embedded: `ForwardInfo`**
 
@@ -361,16 +417,24 @@
 | `userId` | String | UUID người đọc |
 | `readAt` | Date   | Thời điểm đọc  |
 
-**Index**: `conversationId` — tìm kiếm tin nhắn theo conversation
+**Indexes**:
+
+- `conversationId`: Tìm kiếm tin nhắn theo conversation
+- `{ conversationId: 1, 'reactions.userId': 1 }`: Tối ưu toggle reaction
 
 ---
 
 ### 7. Redis Keys
 
-| Key Pattern           | TTL  | Value           | Mục đích                       |
-| --------------------- | ---- | --------------- | ------------------------------ |
-| `pending_otp:{email}` | 900s | String 6 chữ số | OTP xác thực email khi đăng ký |
-| `otp:{userId}`        | 900s | String 6 chữ số | OTP đặt lại mật khẩu           |
+| Key Pattern                       | TTL  | Value            | Mục đích                               |
+| --------------------------------- | ---- | ---------------- | -------------------------------------- |
+| `pending_otp:{email}`             | 900s | String 6 chữ số  | OTP xác thực email khi đăng ký         |
+| `otp:{userId}`                    | 900s | String 6 chữ số  | OTP đặt lại mật khẩu                   |
+| `sess:web:{userId}:{deviceId}`    | 7d   | JSON SessionData | Session web (access token metadata)    |
+| `sess:mobile:{userId}:{deviceId}` | 30d  | JSON SessionData | Session mobile (access token metadata) |
+
+> **SessionData** (JSON): `{ userId, deviceId, platform, userAgent, ip, createdAt, lastActiveAt }`
+> `deviceId` sinh bởi client lần đầu kết nối và gửi kèm request. TTL mobile dài hơn web vì thiết bị di động ít logout thủ công.
 
 ---
 
@@ -405,6 +469,7 @@ auth_service.users.id
     ├─ friend_service.friendships.requesterId
     ├─ friend_service.friendships.addresseeId
     ├─ chat_service.conversations[].participants[].userId
+    ├─ chat_service.conversations[].pinnedMessages[].pinnedBy
     ├─ chat_service.messages.senderId
     ├─ chat_service.messages.reactions[].userId
     ├─ chat_service.messages.deletedFor[]
@@ -445,6 +510,5 @@ Ví dụ: `chats/images/abc-123/550e8400-e29b-41d4-a716-446655440000.jpg`
 │ users (auth)     │ 1:N → reactions trong messages                           │
 │ conversations    │ 1:N → messages                                            │
 │ messages         │ N:1 → conversations (conversationId)                     │
-│ messages         │ self-ref → messages (forwardedFrom.messageId, optional)  │
-└──────────────────┴──────────────────────────────────────────────────────────┘
+│ messages         │ self-ref → messages (forwardedFrom.messageId, optional)  │| conversations    │ self-ref → messages (pinnedMessages[].messageId)          |└──────────────────┴──────────────────────────────────────────────────────────┘
 ```
