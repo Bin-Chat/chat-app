@@ -1843,7 +1843,11 @@ Hệ thống hỗ trợ nhóm chat với phân quyền RBAC (Role-Based Access C
 
 > **Giới hạn admin**: Một nhóm tối đa **5 admin** (không tính owner). Khi đã đủ 5 admin, `changeRole` sẽ throw `BadRequestException`.
 
-> **System messages**: Mỗi hành động quản lý nhóm (thêm/xóa/rời/đổi vai trò/chuyển quyền/giải tán) tự động tạo một tin nhắn hệ thống (type=`'system'`) kèm **tên người thực hiện** (`actorName` từ JWT payload). Ví dụ: _"Nguyễn Văn A đã thêm Trần Thị B vào nhóm"_.
+> **System messages**: Mỗi hành động quản lý nhóm tự động tạo một tin nhắn hệ thống (type=`'system'`) kèm **tên người thực hiện** (`actorName` từ JWT payload). Các hành động sinh system message bao gồm:
+>
+> - Thêm/xóa/rời nhóm, đổi vai trò, chuyển quyền, giải tán nhóm
+> - **Ghim / Bỏ ghim tin nhắn**: _"X đã ghim một tin nhắn"_ / _"X đã bỏ ghim một tin nhắn"_
+> - **Cấm / Bỏ cấm thành viên**: _"X đã cấm một thành viên gửi tin nhắn"_ / _"X đã bỏ cấm một thành viên"_
 
 ### Schema
 
@@ -2199,6 +2203,25 @@ Body: { content: "nội dung mới" }
 | ---------------- | -------------------------------------------------- |
 | `message:edited` | `{ messageId, conversationId, content, editedAt }` |
 
+### Triển khai Frontend
+
+**Web** (`apps/web/`):
+
+- `ChatRoom.tsx` — `editingMessage` state; click Pencil → set state + pre-fill input
+- `MessageBubble.tsx` — `canEdit` prop; hiển thị button "Chỉnh sửa" (Pencil icon)
+- `chatSlice.ts` — `socketMessageEdited` reducer cập nhật message trong store
+
+**Mobile** (`apps/mobile/`):
+
+- `chatServices.ts` — `editMessage(messageId, content)` gọi `PATCH /api/chat/messages/:id`
+- `chatStore.ts` — `editMessage(messageId, conversationId, content)` action; `socketMessageEdited` cập nhật Zustand store
+- `hooks/useChatSocket.ts` — lắng nghe socket event `message:edited` → gọi `socketMessageEdited`
+- `conversation/[id].tsx`:
+  - `MessageBubble` hiển thị button "Chỉnh sửa" (Pencil icon) khi `canEdit = isMine && !isRevoked && !isSystemMsg && diff < 30min`
+  - `editingMessage` state; click → `setEditingMessage(msg)` + pre-fill `setText(msg.content)`
+  - Banner vàng "Đang chỉnh sửa" phía trên input với nút ✕ để huỷ
+  - `handleSend` kiểm tra `editingMessage`: nếu có → gọi `storeEditMessage(id, convId, text)`, không upload file
+
 ---
 
 ## 30. Ghim Tin nhắn (Pin Message)
@@ -2331,10 +2354,13 @@ Khi người dùng đang bị cấm (`isBanned = true`):
 
 ### Socket Events
 
-| Event             | Payload                                         |
-| ----------------- | ----------------------------------------------- |
-| `member:banned`   | `{ conversationId, targetUserId, bannedUntil }` |
-| `member:unbanned` | `{ conversationId, targetUserId }`              |
+| Event             | Payload                                     |
+| ----------------- | ------------------------------------------- |
+| `member:banned`   | `{ conversationId, memberId, bannedUntil }` |
+| `member:unbanned` | `{ conversationId, memberId }`              |
+
+> **System messages**: `banMember` và `unbanMember` cũng tạo tin nhắn hệ thống trong conversation:
+> _"X đã cấm một thành viên gửi tin nhắn"_ / _"X đã bỏ cấm một thành viên"_
 
 ---
 
@@ -2414,23 +2440,31 @@ appSocket.emit('conversation:leave', { conversationId });
 
 ### Cơ chế
 
-Mỗi participant có `lastReadAt: Date | null` lưu trong `conversation.participants[]`. Unread count được tính client-side bằng cách đếm message có `createdAt > lastReadAt`.
+Mỗi participant có `lastReadAt: Date | null` lưu trong `conversation.participants[]`. Unread count được tính **khi load danh sách conversation** bằng cách so sánh `lastMessage.sentAt > participant.lastReadAt`.
+
+### Khi nào gọi `markAsRead`
+
+- **Web**: Mỗi khi `conversationId` trong URL thay đổi (user click vào conversation hoặc navigate trực tiếp). `ChatPage.tsx` gọi `chatServices.markAsRead(conversationId)` sau `setActiveConversation`.
+- **Mobile**: Khi `ConversationScreen` mount hoặc `conversationId` thay đổi. `conversation/[id].tsx` gọi `chatServices.markAsRead(conversationId)` trong `useEffect` cùng với `setActiveConversation`.
+
+> **Lưu ý quan trọng**: Nếu chỉ gọi `setActiveConversation` (clear Redux/Zustand local state) mà **không** gọi `markAsRead` API, badge unread sẽ trở lại sau khi refresh vì `lastReadAt` trên backend chưa được cập nhật.
 
 ### Luồng
 
 ```
-[User mở conversation / scroll đến cuối]
+[User mở conversation]
      ↓
-POST /api/chat/conversations/:id/read
+setActiveConversation(convId)          // clear badge ngay lập tức (UI)
+chatServices.markAsRead(convId)        // ghi lastReadAt = now lên backend
      ↓
 [Chat Service — markAsRead()]
 participant.lastReadAt = new Date()
      ↓
-[Client Redux/Zustand]
-Cập nhật lastReadAt → unreadCount tự động về 0
+[Sau khi refresh — fetchConversations()]
+Tính lại: lastMessage.sentAt > lastReadAt → false → unreadCount = 0
      ↓
 [ConversationList]
-Badge số đỏ biến mất
+Badge số đỏ không hiện lại
 ```
 
 ### API
@@ -2439,21 +2473,21 @@ Badge số đỏ biến mất
 | ------ | ---------------------------------- | ---- | --------------------------------- |
 | POST   | `/api/chat/conversations/:id/read` | ✅   | Đặt `lastReadAt = now` cho caller |
 
-### Tính Unread Count (client-side)
+### Tính Unread Count khi khởi động (fetchConversations)
 
 ```typescript
-// chatSlice/chatStore
-const unreadCount = (conversationId: string) => {
-  const lastRead = myParticipant?.lastReadAt;
-  if (!lastRead) return messages[conversationId]?.length ?? 0;
-  return (
-    messages[conversationId]?.filter(
-      (m) => m.senderId !== currentUserId && new Date(m.createdAt) > new Date(lastRead)
-    ).length ?? 0
-  );
-};
+// chatSlice (web) / chatStore (mobile)
+for (const conv of conversations) {
+  if (!conv.lastMessage) continue;
+  const me = conv.participants.find((p) => p.userId === userId);
+  if (!me) continue;
+  const lastRead = me.lastReadAt;
+  if (!lastRead || new Date(conv.lastMessage.sentAt) > new Date(lastRead)) {
+    unreadCounts[conv._id] = 1; // có tin chưa đọc
+  }
+}
 ```
 
 ---
 
-_Tài liệu cập nhật lần cuối: 2026-04-08 — Bao gồm tất cả tính năng từ chat_nghiep_vu.docx._
+_Tài liệu cập nhật lần cuối: 2026-04-14 — Bao gồm tất cả tính năng từ chat_nghiep_vu.docx._
