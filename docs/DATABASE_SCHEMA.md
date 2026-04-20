@@ -123,9 +123,9 @@
 │  │ + settings: ConversationSettings                  │                    │
 │  │   └─ onlyAdminCanSend: Boolean (default false)    │                    │
 │  │   └─ allowMemberInvite: Boolean (default true)    │                    │
-│  │   └─ onlyAdminCanPin: Boolean  (default false)    │                    │
 │  │   └─ requireJoinApproval: Boolean (default false) │                    │
 │  │   └─ chatHistoryForNewMembers: Boolean (def true) │                    │
+│  │   └─ onlyAdminCanPin: Boolean (dynamic, no @Prop)  │                    │
 │  │                                                    │                    │
 │  │ + pinnedMessages: [PinnedMessage]   (max 50)      │                    │
 │  │   └─ messageId: ObjectId                          │                    │
@@ -135,7 +135,7 @@
 │  │ + lastMessage?: LastMessage                        │                    │
 │  │   └─ senderId: String                             │                    │
 │  │   └─ content: String                              │                    │
-│  │   └─ type: String ('text'|'attachment')           │                    │
+│  │   └─ type: String (default 'text')                │                    │
 │  │   └─ sentAt: Date                                 │                    │
 │  │                                                    │                    │
 │  │ + createdAt: Date (auto)                           │                    │
@@ -185,10 +185,17 @@
 │  │   └─ conversationId: String                       │                    │
 │  │   └─ senderId: String                             │                    │
 │  │                                                    │                    │
+│  │ + replyTo?: ReplyInfo                              │                    │
+│  │   └─ messageId: String                            │                    │
+│  │   └─ senderId: String                             │                    │
+│  │   └─ content: String (trích dẫn, max 100 ký tự)  │                    │
+│  │   └─ attachmentType?: String                      │                    │
+│  │                                                    │                    │
 │  │ + createdAt: Date (auto)                           │                    │
 │  │ + updatedAt: Date (auto)                           │                    │
 │  │                                                    │                    │
-│  │ INDEX: conversationId                              │                    │
+│  │ INDEX: {conversationId:1, createdAt:-1}            │                    │
+│  │ INDEX: {conversationId:1, 'reactions.userId':1}    │                    │
 │  └────────────────────────────────────────────────────┘                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -196,8 +203,12 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Redis                                          │
 │                                                                             │
-│   Key pattern: pending_otp:{email}   TTL: 900s   Value: "123456"           │
-│   Key pattern: otp:{userId}          TTL: 900s   Value: "123456"           │
+│   Key pattern: otp:pending:{email}           TTL: 900s   Value: "123456"   │
+│   Key pattern: otp:{userId}                  TTL: 900s   Value: "123456"   │
+│   Key pattern: refresh:{userId}:{deviceId}   TTL: 7d     Value: JWT token  │
+│   Key pattern: session:active:{userId}:{type} TTL: 30d   Value: deviceId   │
+│   Key pattern: session:device:{userId}:{did}  TTL: 30d   Value: JSON       │
+│   Key pattern: session:deviceids:{userId}     TTL: 30d   Value: Set<did>   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -321,9 +332,11 @@
 | -------------------------- | ------- | ------- | ------------------------------------------- |
 | `onlyAdminCanSend`         | Boolean | false   | Chỉ owner/admin được gửi tin                |
 | `allowMemberInvite`        | Boolean | true    | Member được thêm thành viên mới             |
-| `onlyAdminCanPin`          | Boolean | false   | Chỉ owner/admin được ghim tin nhắn          |
 | `requireJoinApproval`      | Boolean | false   | Cần owner/admin duyệt khi có người tham gia |
 | `chatHistoryForNewMembers` | Boolean | true    | Thành viên mới xem được lịch sử trò chuyện  |
+| `onlyAdminCanPin` ¹        | Boolean | false   | Chỉ owner/admin được ghim tin nhắn          |
+
+> ¹ **Không có `@Prop()` trong Mongoose schema** — được đọc/ghi qua `(conv.settings as any)?.onlyAdminCanPin` trong `chat.service.ts`. MongoDB lưu động, TypeScript không có type-safety cho field này.
 
 **Embedded: `PinnedMessage`** _(max 50 per conversation)_
 
@@ -339,7 +352,7 @@
 | ---------- | ------ | ---------------------------- |
 | `senderId` | String | UUID người gửi tin cuối      |
 | `content`  | String | Text preview (hoặc '[File]') |
-| `type`     | String | `'text'` \| `'attachment'`   |
+| `type`     | String | default `'text'`             |
 | `sentAt`   | Date   | Thời điểm gửi                |
 
 **Indexes**:
@@ -419,19 +432,55 @@
 
 **Indexes**:
 
-- `conversationId`: Tìm kiếm tin nhắn theo conversation
+- `{ conversationId: 1, createdAt: -1 }`: Tìm tin nhắn theo conversation, sắp xếp mới nhất
 - `{ conversationId: 1, 'reactions.userId': 1 }`: Tối ưu toggle reaction
 
 ---
 
 ### 7. Redis Keys
 
-| Key Pattern                       | TTL  | Value            | Mục đích                               |
-| --------------------------------- | ---- | ---------------- | -------------------------------------- |
-| `pending_otp:{email}`             | 900s | String 6 chữ số  | OTP xác thực email khi đăng ký         |
-| `otp:{userId}`                    | 900s | String 6 chữ số  | OTP đặt lại mật khẩu                   |
-| `sess:web:{userId}:{deviceId}`    | 7d   | JSON SessionData | Session web (access token metadata)    |
-| `sess:mobile:{userId}:{deviceId}` | 30d  | JSON SessionData | Session mobile (access token metadata) |
+| Key Pattern                            | TTL  | Value               | Mục đích                                                |
+| -------------------------------------- | ---- | ------------------- | ------------------------------------------------------- |
+| `otp:pending:{email}`                  | 900s | String 6 chữ số     | OTP xác thực email khi đăng ký                          |
+| `otp:{userId}`                         | 900s | String 6 chữ số     | OTP đặt lại mật khẩu                                    |
+| `refresh:{userId}:{deviceId}`          | 7d\* | JWT refresh token   | Refresh token per device (\*30d nếu mobile)             |
+| `session:active:{userId}:{deviceType}` | 30d  | deviceId            | deviceId active hiện tại theo loại (web/mobile)         |
+| `session:device:{userId}:{deviceId}`   | 30d  | JSON DeviceInfo     | Thông tin thiết bị: `{deviceType, deviceName, loginAt}` |
+| `session:deviceids:{userId}`           | 30d  | Redis Set<deviceId> | Tập hợp tất cả deviceId của user (quản lý phiên)        |
+
+---
+
+### 8. Gateway In-Memory Store — `activeCalls`
+
+> Không phải database table. Đây là `Map` trong bộ nhớ của tiến trình **api-gateway** (`socket.gateway.ts`), quản lý các phiên gọi đang diễn ra.
+
+```typescript
+activeCalls: Map<callId, CallSession>;
+```
+
+**CallSession object**:
+
+| Field            | Type                         | Mô tả                                            |
+| ---------------- | ---------------------------- | ------------------------------------------------ |
+| `callId`         | string                       | UUID do client tạo (random + timestamp)          |
+| `conversationId` | string                       | MongoDB ObjectId của conversation                |
+| `callType`       | `'audio'` \| `'video'`       | Loại cuộc gọi                                    |
+| `callerId`       | string                       | UUID của người khởi tạo cuộc gọi                 |
+| `participantIds` | string[]                     | Tất cả userId được mời (không bao gồm caller)    |
+| `acceptedIds`    | string[]                     | Tất cả userId đã accept (bao gồm caller tự động) |
+| `status`         | `'calling'` \| `'connected'` | Trạng thái cuộc gọi                              |
+| `startedAt`      | Date                         | Thời điểm khởi tạo                               |
+
+**Vòng đời**:
+
+```
+call:initiate  → activeCalls.set(callId, session)       [created]
+call:accept    → session.acceptedIds.push(userId)        [updated]
+call:end       → activeCalls.delete(callId)              [deleted]
+disconnect     → cleanup calls where user in acceptedIds [auto GC]
+```
+
+> **Quan trọng**: `activeCalls` là **ephemeral** (mất khi restart gateway). Không có lịch sử cuộc gọi được lưu vào DB trong phiên bản hiện tại.
 
 > **SessionData** (JSON): `{ userId, deviceId, platform, userAgent, ip, createdAt, lastActiveAt }`
 > `deviceId` sinh bởi client lần đầu kết nối và gửi kèm request. TTL mobile dài hơn web vì thiết bị di động ít logout thủ công.
@@ -452,8 +501,8 @@ auth_service.users
 
 user_service.user_profiles
        │
-       │ Kafka: user.profile.updated
-       │ Payload: { id, fullName, avatar }
+       │ Kafka: user.profile_updated
+       │ Payload: { id, fullName, avatar, updatedAt }
        │
        └──────────────────────► friend_service.user_cache   (UPDATE avatar, fullName)
 ```
@@ -482,12 +531,12 @@ auth_service.users.id
 
 Không có database table, S3 object key convention:
 
-| Category   | Prefix             | Max Size | Extensions                               |
-| ---------- | ------------------ | -------- | ---------------------------------------- |
-| `avatar`   | `avatars/`         | 2 MB     | jpg, jpeg, png, webp                     |
-| `image`    | `chats/images/`    | 10 MB    | jpg, jpeg, png, webp, gif                |
-| `video`    | `chats/videos/`    | 50 MB    | mp4, mov, webm                           |
-| `document` | `chats/documents/` | 50 MB    | pdf, doc, docx, xls, xlsx, ppt, txt, zip |
+| Category   | Prefix             | Max Size | Extensions                                          |
+| ---------- | ------------------ | -------- | --------------------------------------------------- |
+| `avatar`   | `avatars/`         | 2 MB     | jpg, jpeg, png, webp                                |
+| `image`    | `chats/images/`    | 10 MB    | jpg, jpeg, png, webp, gif                           |
+| `video`    | `chats/videos/`    | 50 MB    | mp4, mov, webm                                      |
+| `document` | `chats/documents/` | 20 MB    | pdf, doc, docx, xls, xlsx, ppt, pptx, txt, zip, rar |
 
 **Object key format**: `{prefix}/{userId}/{uuid}.{ext}`
 

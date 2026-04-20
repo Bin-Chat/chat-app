@@ -34,6 +34,8 @@
 26. [Quản lý Nhóm Chat (Group Chat Management)](#26-quản-lý-nhóm-chat-group-chat-management)
 27. [Bug Fixes & Cải thiện Nhóm Chat (2026-04-07)](#27-bug-fixes--cải-thiện-nhóm-chat-2026-04-07)
 28. [Hệ thống Presence (Hoạt động trực tuyến)](#28-hệ-thống-presence-hoạt-động-trực-tuyến)
+29. [Tính năng Gọi Voice/Video (Call)](#36-tính-năng-gọi-voicevideo-call)
+30. [Cải tiến Gọi nhóm & UI (2026-04-19)](#37-cải-tiến-gọi-nhóm--ui-2026-04-19)
 
 ---
 
@@ -80,9 +82,9 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    KAFKA (Message Broker)                           │
 │                                                                     │
-│  Topics: user.registered, user.profile.updated                     │
-│          friend.request_sent, friend.request_accepted, ...         │
-│          notification.send_email                                    │
+│  Topics: user.registered, user.profile_updated                     │
+│          friend.request.sent, friend.request.accepted, ...         │
+│          notification.email                                         │
 │          chat.message.created, chat.message.revoked, ...           │
 └─────────────────────────────────────────────────────────────────────┘
                                │
@@ -534,7 +536,7 @@ Friend Service không trực tiếp truy cập Auth/User Service. Nó lưu bản
 
 ```
 [Auth Service] → Kafka: user.registered → [Friend Service] → lưu user_cache
-[User Service] → Kafka: user.profile.updated → [Friend Service] → cập nhật user_cache
+[User Service] → Kafka: user.profile_updated → [Friend Service] → cập nhật user_cache
 ```
 
 ---
@@ -715,12 +717,12 @@ const uploadFile = async (file: File, onProgress) => {
 
 ### File categories và giới hạn
 
-| Category   | Extensions                               | Max Size | Dùng cho         |
-| ---------- | ---------------------------------------- | -------- | ---------------- |
-| `avatar`   | jpg, jpeg, png, webp, gif                | 2MB      | Ảnh đại diện     |
-| `image`    | jpg, jpeg, png, webp, gif, bmp           | 10MB     | Ảnh trong chat   |
-| `video`    | mp4, mov, avi, mkv, webm                 | 50MB     | Video trong chat |
-| `document` | pdf, doc, docx, xls, xlsx, ppt, txt, zip | 50MB     | File đính kèm    |
+| Category   | Extensions                                          | Max Size | Dùng cho         |
+| ---------- | --------------------------------------------------- | -------- | ---------------- |
+| `avatar`   | jpg, jpeg, png, webp                                | 2MB      | Ảnh đại diện     |
+| `image`    | jpg, jpeg, png, webp, gif                           | 10MB     | Ảnh trong chat   |
+| `video`    | mp4, mov, webm                                      | 50MB     | Video trong chat |
+| `document` | pdf, doc, docx, xls, xlsx, ppt, pptx, txt, zip, rar | 20MB     | File đính kèm    |
 
 ### Hiển thị Attachment trong MessageBubble
 
@@ -1247,10 +1249,10 @@ Service A làm việc → emit event → Kafka → Service B phản ứng (async
 
 #### User Events
 
-| Topic                  | Producer     | Consumer(s)    | Payload                                    |
-| ---------------------- | ------------ | -------------- | ------------------------------------------ |
-| `user.registered`      | auth-service | friend-service | `{ id, email, fullName, role, createdAt }` |
-| `user.profile.updated` | user-service | friend-service | `{ id, fullName, avatar }`                 |
+| Topic                  | Producer     | Consumer(s)                  | Payload                                    |
+| ---------------------- | ------------ | ---------------------------- | ------------------------------------------ |
+| `user.registered`      | auth-service | user-service, friend-service | `{ id, email, fullName, role, createdAt }` |
+| `user.profile_updated` | user-service | friend-service               | `{ id, fullName, avatar, updatedAt }`      |
 
 #### Friend Events
 
@@ -2491,3 +2493,404 @@ for (const conv of conversations) {
 ---
 
 _Tài liệu cập nhật lần cuối: 2026-04-14 — Bao gồm tất cả tính năng từ chat_nghiep_vu.docx._
+
+---
+
+## 36. Tính năng Gọi Voice/Video (Call)
+
+> Tính năng cho phép người dùng thực hiện cuộc gọi thoại (audio) hoặc gọi video (video) trong cả **chat đơn** và **chat nhóm** (tối đa 8 người). Được triển khai bằng WebRTC Peer-to-Peer + Socket.io Signaling Relay + coturn TURN Server.
+
+### Tổng quan kiến trúc
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                     CALL ARCHITECTURE                       │
+│                                                            │
+│  User A (Caller)          API Gateway          User B/C/D  │
+│  ┌──────────────┐        ┌──────────┐        ┌──────────┐  │
+│  │  Web / Mobile│──WS──► │ Socket   │──WS──► │Web/Mobile│  │
+│  │  WebRTC peer │        │ Gateway  │        │WebRTC peer│  │
+│  └──────┬───────┘        │ (Relay)  │        └─────┬────┘  │
+│         │                └──────────┘               │      │
+│         │           (chỉ relay SDP/ICE)             │      │
+│         │                                           │      │
+│         └─────── RTCPeerConnection (P2P) ───────────┘      │
+│                  (media stream trực tiếp)                   │
+│                                                            │
+│              ┌────────────────────────────┐                 │
+│              │ coturn TURN Server :3478   │                 │
+│              │ (relay khi P2P bị chặn NAT)│                 │
+│              └────────────────────────────┘                 │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Công nghệ sử dụng
+
+| Thành phần      | Công nghệ                        | Ghi chú                               |
+| --------------- | -------------------------------- | ------------------------------------- |
+| Signaling relay | Socket.io (đã có trong hệ thống) | Không dùng Kafka để giảm độ trễ       |
+| Media P2P       | WebRTC Native (browser)          | Web — `RTCPeerConnection` built-in    |
+| Media P2P       | `react-native-webrtc`            | Mobile — cần native build (Expo Dev)  |
+| NAT traversal   | coturn 4.6.2 (TURN/STUN)         | Container `chat-coturn` port 3478     |
+| State (web)     | Redux Toolkit `callSlice`        | `apps/web/src/store/slices/callSlice` |
+| State (mobile)  | Zustand `callStore`              | `apps/mobile/src/store/callStore`     |
+
+### 6 Socket Events (Signaling)
+
+| Direction       | Event           | Payload chính                                                                    | Mô tả                            |
+| --------------- | --------------- | -------------------------------------------------------------------------------- | -------------------------------- |
+| Client → Server | `call:initiate` | `{ callId, conversationId, callType, participantIds, callerName, callerAvatar }` | Khởi tạo cuộc gọi                |
+| Server → Client | `call:incoming` | `{ callId, conversationId, callType, callerId, callerName, callerAvatar }`       | Thông báo có cuộc gọi đến        |
+| Client → Server | `call:accept`   | `{ callId }`                                                                     | Chấp nhận cuộc gọi               |
+| Server → Client | `call:accepted` | `{ callId, userId, conversationId, callType }`                                   | Thông báo có người vừa chấp nhận |
+| Client → Server | `call:reject`   | `{ callId }`                                                                     | Từ chối cuộc gọi                 |
+| Server → Client | `call:rejected` | `{ callId }`                                                                     | Thông báo bị từ chối             |
+| Client → Server | `call:end`      | `{ callId }`                                                                     | Kết thúc cuộc gọi                |
+| Server → Client | `call:ended`    | `{ callId }`                                                                     | Thông báo cuộc gọi kết thúc      |
+| Client → Server | `call:signal`   | `{ callId, targetUserId, signal: { type, sdp? / candidate? } }`                  | Relay SDP offer/answer/ICE       |
+| Server → Client | `call:signal`   | `{ callId, fromUserId, signal }`                                                 | Forward signal đến target        |
+| Client → Server | `call:busy`     | `{ callId, callerId }`                                                           | Báo đang bận (đã trong cuộc gọi) |
+| Server → Client | `call:busy`     | `{ callId }`                                                                     | Thông báo người nhận đang bận    |
+
+### Luồng gọi đơn (Direct Call)
+
+```
+[User A nhấn nút Phone/Video]
+     ↓
+generateCallId()                               // random uuid
+emit('call:initiate', { callId, participantIds: [B_id], callType })
+dispatch(startCall({ callId, status: 'calling' }))
+router.push('/call')  // (mobile) hoặc render <CallRoom />  // (web)
+     ↓
+[Gateway — handleCallInitiate]
+activeCalls.set(callId, { callerId: A, participantIds: [B], acceptedIds: [A], status: 'calling' })
+emitToUser(B, 'call:incoming', { callId, callerId: A, callerName, callType })
+     ↓
+[User B nhận 'call:incoming']
+dispatch(setIncomingCall(payload))             // web: Redux / mobile: Zustand
+Hiển thị IncomingCallModal (web) hoặc IncomingCallBanner (mobile)
+     ↓
+[User B nhấn Accept]
+emit('call:accept', { callId })
+dispatch(acceptCall(...))
+     ↓
+[Gateway — handleCallAccept]
+activeCalls[callId].acceptedIds.push(B)
+emitToUser(A, 'call:accepted', { callId, userId: B })
+     ↓
+[User A nhận 'call:accepted']
+dispatch(addParticipant(B))
+inititeOffer(B)                                // useWebRTC — tạo RTCPeerConnection
+     ↓
+[WebRTC Offer/Answer qua call:signal relay]
+A: createOffer() → emit('call:signal', { targetUserId: B, signal: { type:'offer', sdp } })
+B: nhận signal → setRemoteDescription(offer) → createAnswer() → emit('call:signal', { targetUserId: A, signal: { type:'answer', sdp } })
+A: nhận signal → setRemoteDescription(answer)
+     ↓
+[ICE Candidate Exchange]
+A: onicecandidate → emit('call:signal', { signal: { type:'candidate', candidate } })
+B: onicecandidate → emit('call:signal', { signal: { type:'candidate', candidate } })
+     ↓
+[RTCPeerConnection connected]
+stream audio/video P2P — không qua server
+     ↓
+[Kết thúc — User A/B nhấn Hang Up]
+emit('call:end', { callId })
+dispatch(endCall())
+cleanup()  // dừng tracks, close peers, stop stream
+[Gateway]
+activeCalls.delete(callId)
+emitToUser(B, 'call:ended', { callId })
+```
+
+### Luồng gọi nhóm (Group Call — Mesh P2P)
+
+```
+[User A gọi nhóm với B, C, D]
+emit('call:initiate', { callId, participantIds: [B, C, D] })
+activeCalls.acceptedIds = [A]  // A tự động join
+
+[B accept]
+activeCalls.acceptedIds = [A, B]
+gateway emit('call:accepted', { userId: B }) → đến A
+A nhận → initiateOffer(B)  // A → B WebRTC offer
+
+[C accept]
+activeCalls.acceptedIds = [A, B, C]
+gateway emit('call:accepted', { userId: C }) → đến A, B (tất cả đã accepted)
+A nhận → initiateOffer(C)
+B nhận → initiateOffer(C)
+// Bây giờ có 3 kết nối: A↔B, A↔C, B↔C (mesh topology)
+
+[D accept]
+// Tương tự: A→D, B→D, C→D offer
+// 6 kết nối: A↔B, A↔C, A↔D, B↔C, B↔D, C↔D
+```
+
+> **Giới hạn**: Tối đa 8 người do mesh P2P tạo ra $\frac{n(n-1)}{2}$ connections. Với 8 người = 28 connections — chấp nhận được.
+
+### ICE Server Configuration (coturn)
+
+```typescript
+// useWebRTC.ts — ICE config
+const iceConfig: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' }, // Google STUN (public)
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:localhost:3478', // coturn local
+      username: import.meta.env.VITE_TURN_USERNAME,
+      credential: import.meta.env.VITE_TURN_PASSWORD,
+    },
+  ],
+};
+```
+
+**coturn docker-compose config**:
+
+- Image: `coturn/coturn:4.6.2`
+- Port: `3478/tcp`, `3478/udp` (signaling), `49152-49200/udp` (relay)
+- Auth: `lt-cred-mech` với credentials từ env `TURN_USERNAME` / `TURN_PASSWORD`
+- Realm: `chat.local`
+- Không TLS/DTLS (internal dev network)
+
+### ICE Candidate Buffering
+
+Trong quá trình signaling, ICE candidates có thể đến **trước khi** remote description được set. Hook `useWebRTC.ts` buffer chúng:
+
+```typescript
+// Nếu remote description chưa set → buffer
+if (!pc.remoteDescription) {
+  pendingCandidates.get(fromUserId)?.push(candidate);
+} else {
+  await pc.addIceCandidate(new RTCIceCandidate(candidate));
+}
+// Khi set remote description xong → flush buffer
+for (const c of pendingCandidates.get(remoteUserId) ?? []) {
+  await pc.addIceCandidate(new RTCIceCandidate(c));
+}
+```
+
+### State Management
+
+**Web (Redux callSlice)**:
+
+```typescript
+interface CallSliceState {
+  status: 'idle' | 'calling' | 'ringing' | 'connected';
+  callId: string | null;
+  conversationId: string | null;
+  callType: 'audio' | 'video';
+  participantIds: string[]; // tất cả user IDs trong call
+  initiatorId: string | null;
+  incomingCall: IncomingCallInfo | null; // hiện modal khi != null
+  isMuted: boolean;
+  isVideoOff: boolean;
+  isScreenSharing: boolean;
+}
+```
+
+**Mobile (Zustand callStore)** — cùng shape, cùng actions.
+
+### UI Components
+
+**Web**:
+
+| Component           | File                                         | Hiển thị khi                                                              |
+| ------------------- | -------------------------------------------- | ------------------------------------------------------------------------- |
+| `IncomingCallModal` | `components/call/IncomingCallModal.tsx`      | `call.incomingCall !== null`                                              |
+| `CallRoom`          | `components/call/CallRoom.tsx`               | `call.status !== 'idle'`                                                  |
+| Phone/Video buttons | `pages/private/chat/components/ChatRoom.tsx` | `call.status === 'idle'` (header)                                         |
+| Rejoin banner       | `pages/private/chat/components/ChatRoom.tsx` | `ongoingGroupCall.conversationId === conversationId && status === 'idle'` |
+
+**Mobile**:
+
+| Component            | File                                 | Hiển thị khi                                |
+| -------------------- | ------------------------------------ | ------------------------------------------- |
+| `IncomingCallBanner` | `app/_layout.tsx` (inline component) | `callStore.incomingCall !== null` (overlay) |
+| `call.tsx`           | `app/call.tsx`                       | Navigate đến `/call` sau khi accept/start   |
+| Phone/Video buttons  | `app/conversation/[id].tsx` (header) | `callStatus === 'idle'`                     |
+
+### Lưu ý Mobile — Expo Go vs Dev Build
+
+`react-native-webrtc` yêu cầu native modules — **không chạy được trong Expo Go**.
+
+```bash
+# Để dùng WebRTC thật trên mobile:
+npx expo prebuild          # Tạo android/ ios/ native folders
+npx expo run:android       # Build và run native app trên Android
+```
+
+Trong Expo Go, hook `useWebRTC.ts` (mobile) detect thiếu module qua `try/require` và set `isWebRTCAvailable = false`, hiển thị Alert hướng dẫn user chuyển sang dev build.
+
+### API & Environment Variables
+
+| Biến                 | Nơi dùng       | Giá trị mặc định      | Mô tả                      |
+| -------------------- | -------------- | --------------------- | -------------------------- |
+| `VITE_TURN_USERNAME` | Web (Vite env) | `chatapp`             | TURN server username       |
+| `VITE_TURN_PASSWORD` | Web (Vite env) | `chatapp_turn_secret` | TURN server password       |
+| `TURN_USERNAME`      | docker-compose | `chatapp`             | coturn lt-cred-mech user   |
+| `TURN_PASSWORD`      | docker-compose | `chatapp_turn_secret` | coturn lt-cred-mech secret |
+
+### Gateway In-Memory Session Store
+
+```typescript
+// socket.gateway.ts
+activeCalls = new Map<
+  string,
+  {
+    callId: string;
+    conversationId: string;
+    callType: 'audio' | 'video';
+    callerId: string;
+    participantIds: string[]; // tất cả người được mời
+    acceptedIds: string[]; // người đã accept (bao gồm caller)
+    status: 'calling' | 'connected';
+    startedAt: Date;
+  }
+>();
+```
+
+> **Lưu ý**: `activeCalls` là **in-memory** — cuộc gọi không được persist vào DB. Nếu Gateway khởi động lại, tất cả cuộc gọi đang diễn ra sẽ bị hủy. Đây là trade-off để giảm độ trễ signaling.
+
+> **Lưu ý**: `activeCalls` là **in-memory** — cuộc gọi không được persist vào DB. Nếu Gateway khởi động lại, tất cả cuộc gọi đang diễn ra sẽ bị hủy. Đây là trade-off để giảm độ trễ signaling.
+
+---
+
+## 37. Cải tiến Gọi nhóm & UI (2026-04-19)
+
+### A. Kết thúc cuộc gọi khi chỉ còn 1 người
+
+**File**: `gateway/api-gateway/src/socket/socket.gateway.ts`
+
+Trước đây gateway chỉ kết thúc cuộc gọi khi `acceptedIds.length === 0`. Đã sửa thành `<= 1`:
+
+```typescript
+// Trong handleCallEnd / handleCallLeft
+if (isOneOnOne || session.acceptedIds.length <= 1) {
+  // Kết thúc — 1 người ở lại 1 mình không có ý nghĩa
+  activeCalls.delete(callId);
+  emitToAll('call:ended', { callId });
+}
+```
+
+### B. Tính năng Chia sẻ màn hình (Screen Share)
+
+**Signal mới**: `screen_share_status` — peer-to-peer qua `call:signal` relay.
+
+```typescript
+// useWebRTC.ts — startScreenShare()
+peers.forEach((pc, userId) => {
+  pc.emit('call:signal', {
+    targetUserId: userId,
+    signal: { type: 'screen_share_status', isSharing: true },
+  });
+});
+
+// handleSignal
+if (signal.type === 'screen_share_status') {
+  setScreenSharingUsers((prev) => ({ ...prev, [fromUserId]: signal.isSharing }));
+}
+```
+
+**Fix camera sau khi dừng screen share**: Dùng `isVideoOffRef` để không auto-enable camera nếu user đã tắt.
+
+```typescript
+// stopScreenShare — khôi phục đúng trạng thái camera
+const camTrack = localStreamRef.current?.getVideoTracks()[0];
+if (camTrack) camTrack.enabled = !isVideoOffRef.current; // không bật nếu đã tắt
+```
+
+**VideoTile `forceContain`**: Tự phát hiện screen share qua aspect ratio:
+
+```typescript
+const isWide = ratio > 1.6 && (videoWidth > 1280 || videoHeight > 720);
+setObjectFit(forceContain || isWide ? 'contain' : 'cover');
+```
+
+### C. Redux State — `ongoingGroupCall`
+
+Thêm field `ongoingGroupCall: IncomingCallInfo | null` vào `callSlice`:
+
+| Hành động                      | Thay đổi `ongoingGroupCall`                                            |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `startCall`                    | Reset về `null`                                                        |
+| `acceptCall`                   | Reset về `null`                                                        |
+| `endCall`                      | **GIỮ nguyên** (để rejoin banner vẫn hiển thị)                         |
+| `setOngoingGroupCall(payload)` | Set từ `ChatSocketInitializer` khi nhận `call:incoming` của group call |
+| `setOngoingGroupCall(null)`    | Clear khi cuộc gọi bị hủy (`call:cancelled`)                           |
+
+### D. Rejoin Banner — Tham gia lại cuộc gọi nhóm
+
+Khi user từ chối hoặc rời cuộc gọi nhóm, hiển thị banner cho phép tham gia lại:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ ● Đang có cuộc gọi nhóm              [Tham gia]     │
+└─────────────────────────────────────────────────────┘
+```
+
+**Điều kiện hiển thị**: `ongoingGroupCall.conversationId === conversationId && status === 'idle'`
+
+**Luồng rejoin**:
+
+```
+User click "Tham gia"
+  → emit('call:accept', { callId })
+  → dispatch(acceptCall({ callId, callerId, currentUserId }))
+  → status = 'ringing' → CallRoom render
+  → Gateway emit call:accepted đến các peers
+  → Mỗi peer gọi initiateOffer(rejoinUserId)
+  → WebRTC kết nối mesh
+```
+
+### E. UI cuộc gọi nâng cao
+
+#### `useVoiceActivity` Hook
+
+```typescript
+function useVoiceActivity(localStream, remoteStreams, localUserId): Record<string, boolean>;
+```
+
+- Dùng Web Audio API `AnalyserNode`
+- Poll 150ms, ngưỡng avg frequency > 12 → đang nói
+- Trả về `speaking: Record<userId, boolean>`
+
+#### `ParticipantSidebar` Component (w-52)
+
+Hiển thị bên phải `CallRoom` cho **mọi cuộc gọi** (kể cả 1-1):
+
+- Avatar + tên từng participant
+- Ring xanh + `animate-ping` khi đang nói
+- Trạng thái: "Đang nói..." / "Đang kết nối" / "Chưa tham gia"
+
+**Fix callee không có sidebar**: Khi callee `acceptCall`, `participantIds` phải gồm cả `currentUserId`:
+
+```typescript
+// callSlice.ts — acceptCall reducer
+const ids = [action.payload.callerId];
+if (action.payload.currentUserId) ids.push(action.payload.currentUserId);
+state.participantIds = ids;
+```
+
+#### `AudioGroupView` Component
+
+Grid hiển thị avatar khi tất cả tắt camera trong group call:
+
+- ≤4 người: 2 cột
+- ≤6 người: 3 cột
+- > 6 người: 4 cột
+- Ring xanh khi nói, animate-ping
+
+#### `GroupLayout` — Spotlight screen share
+
+```typescript
+useEffect(() => {
+  const sharingUser = Object.entries(screenSharingUsers).find(([, v]) => v)?.[0];
+  if (sharingUser) setSpotlightId(sharingUser);
+}, [screenSharingUsers]);
+```
+
+---
+
+_Tài liệu cập nhật lần cuối: 2026-04-19 — Thêm Section 37: Cải tiến Gọi nhóm & UI._

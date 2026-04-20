@@ -369,6 +369,31 @@ services:
       retries: 3
       start_period: 40s
 
+  # ========================================
+  # TURN Server - coturn (WebRTC NAT traversal)
+  # ========================================
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: chat-coturn
+    restart: unless-stopped
+    ports:
+      - '3478:3478/tcp'
+      - '3478:3478/udp'
+      - '49152-49200:49152-49200/udp'
+    command: >
+      -n
+      --log-file=stdout
+      --min-port=49152
+      --max-port=49200
+      --realm=chat.local
+      --user=${TURN_USERNAME:-chatapp}:${TURN_PASSWORD:-chatapp_turn_secret}
+      --no-tls
+      --no-dtls
+      --fingerprint
+      --lt-cred-mech
+    networks:
+      - chat-network
+
 # ========================================
 # VOLUMES & NETWORKS
 # ========================================
