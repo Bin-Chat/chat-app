@@ -142,6 +142,7 @@ services:
       - FRIEND_SERVICE_URL=http://friend-service:3025
       - UPLOAD_SERVICE_URL=http://upload-service:3035
       - CHAT_SERVICE_URL=http://chat-service:3040
+      - AI_SERVICE_URL=http://ai-service:3050
       - CORS_ORIGIN=http://localhost:5173,http://localhost:3000,http://localhost:8081,http://localhost:19006
       - KAFKA_BROKER=redpanda:9092
     depends_on:
@@ -155,6 +156,8 @@ services:
         condition: service_healthy
       chat-service:
         condition: service_healthy
+      ai-service:
+        condition: service_started
     networks:
       - chat-network
     healthcheck:
@@ -370,6 +373,56 @@ services:
       start_period: 40s
 
   # ========================================
+  # VECTOR DB - Qdrant (AI / RAG)
+  # ========================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: chat-qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - chat-network
+
+  # ========================================
+  # MICROSERVICES - AI Service (NestJS)
+  # ========================================
+  ai-service:
+    build:
+      context: ./services/ai
+      dockerfile: Dockerfile
+    container_name: ai-service
+    restart: unless-stopped
+    ports:
+      - '3050:3050'
+    environment:
+      - NODE_ENV=development
+      - PORT=3050
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BROKER=redpanda:9092
+      - CHAT_SERVICE_URL=http://chat-service:3040
+    depends_on:
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - chat-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3050/api/ai/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ========================================
   # TURN Server - coturn (WebRTC NAT traversal)
   # ========================================
   coturn:
@@ -406,6 +459,8 @@ volumes:
   redpanda_data:
     driver: local
   mongo_data:
+    driver: local
+  qdrant_data:
     driver: local
 
 networks:

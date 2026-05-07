@@ -55,13 +55,19 @@ if not exist "%ROOT_DIR%\apps\mobile\node_modules" (
     call npm install
     popd
 )
+if not exist "%ROOT_DIR%\services\ai\node_modules" (
+    echo Installing AI service dependencies...
+    pushd "%ROOT_DIR%\services\ai"
+    call npm install --legacy-peer-deps
+    popd
+)
 echo [OK] Dependencies ready
 
 REM Start infrastructure (Postgres, Redis, MongoDB, Redpanda/Kafka)
 echo.
 echo [4/7] Starting infrastructure...
 pushd "%ROOT_DIR%"
-docker-compose up -d postgres redis mongo redpanda
+docker-compose up -d postgres redis mongo redpanda qdrant
 popd
 echo Waiting 20 seconds for infrastructure to be healthy...
 timeout /t 20 /nobreak >nul
@@ -79,6 +85,7 @@ docker-compose up -d --build ^
     friend-service ^
     upload-service ^
     chat-service ^
+    ai-service ^
     api-gateway
 popd
 echo [OK] Backend services building in background
@@ -109,6 +116,7 @@ echo   Friend Service:        http://localhost:3025
 echo   Notification Service:  http://localhost:3030
 echo   Upload Service:        http://localhost:3035
 echo   Chat Service:          http://localhost:3040
+echo   AI Service:            http://localhost:3050
 echo   Mobile (Expo):         Scan QR code in Expo window
 echo.
 echo Infrastructure:
@@ -116,6 +124,7 @@ echo   PostgreSQL:            localhost:5432
 echo   Redis:                 localhost:6379
 echo   MongoDB:               localhost:27017
 echo   Redpanda (Kafka):      localhost:19092
+echo   Qdrant (Vector DB):    localhost:6333
 echo.
 echo Useful commands:
 echo   Check status:  docker-compose ps

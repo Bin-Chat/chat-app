@@ -374,6 +374,7 @@
 | `isEdited`       | Boolean       | Có đã được chỉnh sửa không (default `false`)                             |
 | `editedAt`       | Date?         | Thời điểm chỉnh sửa gần nhất (null = chưa chỉnh sửa)                     |
 | `revokedAt`      | Date?         | Thời điểm thu hồi (null = chưa thu hồi)                                  |
+| `revokedBy`      | String?       | Người/hệ thống thu hồi: `'user'` (người dùng) hoặc `'ai-moderation'` (AI kiểm duyệt) |
 | `attachments`    | Attachment[]  | Danh sách file đính kèm                                                  |
 | `reactions`      | Reaction[]    | Danh sách emoji reactions                                                |
 | `deletedFor`     | String[]      | Mảng userId đã xóa tin (soft delete)                                     |
@@ -561,3 +562,69 @@ Ví dụ: `chats/images/abc-123/550e8400-e29b-41d4-a716-446655440000.jpg`
 │ messages         │ N:1 → conversations (conversationId)                     │
 │ messages         │ self-ref → messages (forwardedFrom.messageId, optional)  │| conversations    │ self-ref → messages (pinnedMessages[].messageId)          |└──────────────────┴──────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Qdrant — ai-service
+
+> **Qdrant** là vector database dùng cho các tính năng AI. Chạy trên port **6333**, sử dụng Docker image `qdrant/qdrant:latest`.
+
+### Collection: `binchat_messages`
+
+Lưu embedding của **tin nhắn chat** phục vụ Semantic Search.
+
+| Payload Field | Type | Mô tả |
+|---|---|---|
+| `messageId` | `string` | ID tin nhắn (ObjectId) |
+| `conversationId` | `string` | ID cuộc trò chuyện |
+| `senderId` | `string` | ID người gửi |
+| `content` | `string` | Nội dung tin nhắn (plain text) |
+| `timestamp` | `string` | ISO datetime gửi tin nhắn |
+
+**Vector:** 1536 chiều (float32), metric **Cosine**, model `text-embedding-3-small`
+
+```json
+{
+  "id": "<uuid>",
+  "vector": [0.123, -0.456, ...],
+  "payload": {
+    "messageId": "6630abc123...",
+    "conversationId": "6630def456...",
+    "senderId": "6630ghi789...",
+    "content": "Hẹn nhau vào tối thứ 6 nhé",
+    "timestamp": "2026-04-19T10:30:00.000Z"
+  }
+}
+```
+
+---
+
+### Collection: `binchat_documents`
+
+Lưu embedding của **tài liệu RAG** phục vụ RAG Bot (hỏi & đáp).
+
+| Payload Field | Type | Mô tả |
+|---|---|---|
+| `text` | `string` | Nội dung đoạn văn (chunk, ≤500 ký tự) |
+| `chunkIndex` | `number` | Thứ tự chunk trong tài liệu gốc |
+| `collectionId` | `string` | Nhóm tài liệu (tùy chọn lọc khi query) |
+| `source` | `string` | Nguồn tài liệu (URL, tên file...) |
+| `title` | `string` | Tiêu đề tài liệu |
+
+**Vector:** 1536 chiều (float32), metric **Cosine**, model `text-embedding-3-small`
+
+---
+
+## Redis — ai-service
+
+> ai-service dùng Redis để cache kết quả OpenAI, giảm chi phí API và tăng tốc độ phản hồi.
+
+| Key Pattern | TTL | Nội dung |
+|---|---|---|
+| `ai:summary:{conversationId}:{count}:{fromDate}_{toDate}` | **1 giờ** | Chuỗi tóm tắt cuộc trò chuyện có cấu trúc |
+| `ai:translate:{md5(text+targetLang)}` | **24 giờ** | Chuỗi văn bản đã dịch |
+
+**Ví dụ key:**
+- `ai:summary:6630def456:42:2026-04-13_2026-04-20` — tóm tắt conversation `6630def456` với 42 tin nhắn từ 13/4 đến 20/4
+- `ai:summary:6630def456:87:all` — tóm tắt không có date range filter
+- `ai:translate:a1b2c3d4e5f6...` — bản dịch của "Hello world" sang `vi`

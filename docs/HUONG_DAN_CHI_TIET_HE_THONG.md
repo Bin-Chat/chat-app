@@ -36,6 +36,7 @@
 28. [Hệ thống Presence (Hoạt động trực tuyến)](#28-hệ-thống-presence-hoạt-động-trực-tuyến)
 29. [Tính năng Gọi Voice/Video (Call)](#36-tính-năng-gọi-voicevideo-call)
 30. [Cải tiến Gọi nhóm & UI (2026-04-19)](#37-cải-tiến-gọi-nhóm--ui-2026-04-19)
+31. [AI Service — BinChat AI](#38-ai-service--binchat-ai)
 
 ---
 
@@ -1275,7 +1276,7 @@ Service A làm việc → emit event → Kafka → Service B phản ứng (async
 | Topic                        | Producer     | Consumer(s) | Payload                                                                           |
 | ---------------------------- | ------------ | ----------- | --------------------------------------------------------------------------------- |
 | `chat.message.created`       | chat-service | api-gateway | `{ messageId, conversationId, senderId, participants[], content, attachments[] }` |
-| `chat.message.revoked`       | chat-service | api-gateway | `{ messageId, conversationId, participants[], revokedAt }`                        |
+| `chat.message.revoked`       | chat-service | api-gateway | `{ messageId, conversationId, participants[], revokedAt, revokedBy? }`            |
 | `chat.message.edited`        | chat-service | api-gateway | `{ messageId, conversationId, participants[], content, editedAt }`                |
 | `chat.message.pinned`        | chat-service | api-gateway | `{ messageId, conversationId, participants[], pinnedBy, pinnedAt }`               |
 | `chat.message.unpinned`      | chat-service | api-gateway | `{ messageId, conversationId, participants[] }`                                   |
@@ -2894,3 +2895,229 @@ useEffect(() => {
 ---
 
 _Tài liệu cập nhật lần cuối: 2026-04-19 — Thêm Section 37: Cải tiến Gọi nhóm & UI._
+
+---
+
+## 38. AI Service — BinChat AI
+
+> **ai-service** là microservice độc lập chạy trên port **3050**, cung cấp 5 tính năng AI tích hợp vào giao diện chat: Kiểm duyệt nội dung, RAG Bot, Tìm kiếm ngữ nghĩa, Tóm tắt cuộc trò chuyện, và Dịch tin nhắn.
+
+### Stack kỹ thuật
+
+| Thành phần | Vai trò |
+|---|---|
+| **OpenAI `text-embedding-3-small`** | Tạo vector embedding (1536 chiều) cho tin nhắn / tài liệu |
+| **OpenAI `gpt-3.5-turbo`** | Sinh câu trả lời RAG Bot, tóm tắt và dịch |
+| **OpenAI `omni-moderation-latest`** | Kiểm duyệt nội dung (miễn phí) |
+| **Qdrant** | Vector database, lưu và tìm kiếm embedding |
+| **Redis** | Cache summary (TTL 1h) và translation (TTL 24h) |
+| **Kafka** | Consume `chat.message.created`, produce `ai.message.moderated` |
+
+### Luồng hoạt động tổng quan
+
+```
+Client (Web/Mobile)
+  │
+  ▼ HTTP POST /api/ai/...
+API Gateway (:3000) ── proxy ──► ai-service (:3050)
+                                      │
+                             ┌────────┼────────────┐
+                             ▼        ▼             ▼
+                          OpenAI   Qdrant        Redis
+```
+
+---
+
+### Chức năng 1: Kiểm duyệt nội dung (Content Moderation)
+
+**Mô tả:** Mỗi khi có tin nhắn mới gửi, ai-service tự động kiểm tra nội dung bằng 2 lớp:  
+- **Lớp 1:** Regex phát hiện ngôn ngữ độc hại tiếng Việt (vd: chửi thề viết tắt, ngôn từ đe dọa)  
+- **Lớp 2:** OpenAI `omni-moderation-latest` với ngưỡng confidence 0.65 (giảm false positive)
+
+Nếu vi phạm, tin nhắn bị tự động thu hồi với `revokedBy: 'ai-moderation'`.
+
+**Luồng hoạt động:**
+1. User gửi tin nhắn → chat-service emit event Kafka `chat.message.created`
+2. ai-service consume → kiểm tra regex Vi → gọi OpenAI Moderation API
+3. Nếu flagged → produce `ai.message.moderated` với `{ messageId, conversationId, flagged, categories, severity: 'low'|'medium'|'high', reason? }`
+4. chat-service consume → set `message.revokedAt`, `message.revokedBy = 'ai-moderation'` → save → emit `chat.message.revoked` Kafka
+5. gateway consume → emit `message:revoked` socket với payload gồm `revokedBy: 'ai-moderation'`
+6. Client nhận → Redux/Zustand cập nhật `message.revokedBy` → hiển thị **thẻ cảnh báo đỏ** thay vì "Tin nhắn đã thu hồi"
+
+**UI cảnh báo AI moderation** (web + mobile):
+- Hiển thị card đỏ có icon `ShieldAlert`
+- Tiêu đề: "Vi phạm chính sách cộng đồng"
+- Mô tả: "Tin nhắn đã bị AI kiểm duyệt và xóa tự động do nội dung không phù hợp"
+- Phân biệt với thu hồi thủ công bằng cách kiểm tra `message.revokedBy === 'ai-moderation'`
+
+**Field mới trong Message schema:** `revokedBy?: string` — giá trị `'user'` (thu hồi thủ công) hoặc `'ai-moderation'` (AI kiểm duyệt)
+
+---
+
+### Chức năng 2: Tìm kiếm ngữ nghĩa (Semantic Search)
+
+**Endpoint:** `POST /api/ai/search`  
+**Body:** `{ query: string, conversationId?: string, limit?: number }`
+
+**Mô tả:** Thay vì tìm kiếm từ khóa thông thường (exact match), tính năng này hiểu **ngữ nghĩa** của câu hỏi. Ví dụ: tìm "đặt lịch ăn tối" sẽ tìm thấy tin nhắn "hẹn nhau vào tối thứ 6 nhé" dù không có chữ nào trùng khớp.
+
+**Cơ chế hoạt động:**
+1. Khi tin nhắn được gửi, ai-service embed nội dung thành vector 1536 chiều → lưu vào Qdrant collection `binchat_messages`
+2. Khi user tìm kiếm, embed query → tìm k-nearest neighbors trong Qdrant với metric Cosine
+3. Trả về top-N kết quả với điểm `score` (0–1) thể hiện mức độ phù hợp
+
+**Web UI:** Nút `🔍` trên header ChatRoom → mở `AiSearchPanel` (panel phải, có nút đồng bộ ↻ để backfill)
+
+**API bổ sung (backfill):** `POST /api/ai/messages/reindex`  
+Body: `{ messages: Array<{ messageId, conversationId, senderId, content, timestamp }> }`  
+Mục đích: index lại các tin nhắn cũ chưa được index (ví dụ khi khậi động lại service hoặc sau khi sửa lỗi Kafka topic).  
+**Mobile UI:** Nút `Search` trên header → mở modal full-screen với TextInput + FlatList kết quả
+
+---
+
+### Chức năng 3: RAG Bot (Hỏi & Đáp AI)
+
+**Endpoint:** `POST /api/ai/ask`  
+**Body:** `{ question: string, collectionId?: string }`
+
+**Mô tả:** Chatbot AI có thể trả lời câu hỏi dựa trên **kiến thức được lập chỉ mục từ tài liệu** (RAG — Retrieval-Augmented Generation). Không chỉ trả lời chung chung, bot tìm kiếm thông tin liên quan trong Qdrant trước, rồi mới sinh câu trả lời.
+
+**Cơ chế hoạt động (với phân loại ý định / intent classification):**
+1. **Phân tích ý định** (song song): embed câu hỏi (1536 đ) + gọi GPT phân loại intent (1 trong 7 nhóm)
+2. **7 nhóm intent:**
+   | Intent | Mô tả | Nguồn tài liệu ưu tiên |
+   |--------|---------|---------------------|
+   | `greeting` | Chào hỏi, giới thiệu | Trả lời trực tiếp, không cần tìm docs |
+   | `feature_usage` | Hướng dẫn sử dụng tính năng | `binchat-guide`, `binchat-intro` |
+   | `ai_features` | Tính năng AI | `binchat-ai`, `binchat-guide` |
+   | `technical` | Kiến trúc kỹ thuật | `binchat-architecture` |
+   | `troubleshoot` | Sử a, khắc phục lỗi | `binchat-troubleshoot`, `binchat-guide` |
+   | `social_features` | Bạn bè, nhóm, kết nối | `binchat-social`, `binchat-guide` |
+   | `general` | Câu hỏi chung | Tìm kiếm rộng |
+3. Tìm top-5 đoạn văn bản liên quan từ Qdrant, lọc theo `docSources` phù hợp với intent
+4. Xây dựng system prompt có tính cách riêng cho từng nhóm intent
+5. Gọi `gpt-3.5-turbo` với context + câu hỏi → sinh câu trả lời
+6. Trả về `{ question, answer }`
+
+**Lập chỉ mục tài liệu:** `POST /api/ai/documents/index`  
+Body: `{ text, collectionId?, source?, title? }` — Chia text thành các chunks 500 ký tự, embed và lưu vào `binchat_documents`
+
+**Web UI:** Nút `🤖` trên header ChatRoom → mở `AiBotPanel` (panel phải, giao diện chat)  
+**Mobile UI:** Hiện tại chưa có panel bot riêng trên mobile (có thể mở rộng sau)
+
+---
+
+### Chức năng 4: Tóm tắt cuộc trò chuyện (Conversation Summary)
+
+**Endpoint:** `POST /api/ai/conversations/:id/summary`  
+**Body:** `{ messages: [{ senderId, senderName?, content, timestamp }], fromDate?: string, toDate?: string }`
+
+**Mô tả:** AI phân tích tin nhắn trong **khoảng thời gian tùy chọn** (fromDate → toDate) và tạo bản tóm tắt chuyên nghiệp có cấu trúc theo 4 phần: Tổng quan, Nội dung chính, Kết luận & Quyết định, Hành động cần thực hiện.
+
+**Cơ chế hoạt động:**
+1. Client hiển thị date range picker (mặc định: 7 ngày gần nhất → hôm nay)
+2. Client lọc tin nhắn theo khoảng ngày: `type === 'text'`, không thu hồi
+3. Gửi `{ messages, fromDate, toDate }` lên ai-service
+4. ai-service lọc lại theo date range nếu cần, kiểm tra Redis cache: key `ai:summary:{conversationId}:{count}:{fromDate}_{toDate}`, TTL 1h
+5. Nếu cache miss: xây dựng structured prompt → gọi `gpt-3.5-turbo` (max_tokens: 800) → lưu cache → trả về
+6. Trả về `{ conversationId, summary, fromDate, toDate, messageCount }`
+
+**Format output của AI:**
+```
+📋 TỔNG QUAN
+[Mô tả ngắn về nội dung cuộc trò chuyện]
+
+🎯 NỘI DUNG CHÍNH
+• [Điểm chính 1]
+• [Điểm chính 2]
+
+✅ KẾT LUẬN & QUYẾT ĐỊNH
+• [Kết luận đạt được]
+
+⚡ HÀNH ĐỘNG CẦN THỰC HIỆN
+• [Việc cần làm tiếp theo]
+```
+
+**Cache:** Key bao gồm date range nên tóm tắt khác ngày không chia sẻ cache.
+
+**Web UI:** Nút `📄` trên header ChatRoom → mở `AiSummaryModal` với date range picker  
+**Mobile UI:** Nút `AlignLeft` trên header → modal full-screen với 2 ô nhập ngày (YYYY-MM-DD)
+
+---
+
+### Chức năng 5: Dịch tin nhắn (Message Translation)
+
+**Endpoint:** `POST /api/ai/translate`  
+**Body:** `{ text: string, targetLanguage: string, sourceLanguage?: string }`
+
+**Mô tả:** Dịch bất kỳ tin nhắn nào sang ngôn ngữ mong muốn. Hỗ trợ: Tiếng Anh (`en`), Tiếng Việt (`vi`), Tiếng Trung (`zh`), Tiếng Nhật (`ja`), Tiếng Hàn (`ko`), Tiếng Pháp (`fr`), Tiếng Đức (`de`), Tiếng Tây Ban Nha (`es`).
+
+**Cơ chế hoạt động:**
+1. Client gửi `{ text, targetLanguage }`
+2. ai-service tạo cache key: `ai:translate:{md5(text+targetLang)}`, TTL 24h
+3. Nếu cache hit → trả về ngay
+4. Nếu cache miss → gọi `gpt-3.5-turbo` với prompt dịch → lưu cache → trả về
+5. Trả về `{ original, translated, targetLanguage }`
+
+**Cache:** Dịch giống nhau trong 24h không gọi lại OpenAI.
+
+**Web UI:** Menu 3 chấm trên từng tin nhắn → icon `🌐` (Dịch tin nhắn) → mở `TranslateMessageModal`  
+**Mobile UI:** Long-press tin nhắn → action modal → "Dịch tin nhắn (AI)" → mở `TranslateModal`
+
+---
+
+### API Endpoints tóm tắt
+
+| Method | Path | Chức năng |
+|---|---|---|
+| `GET` | `/api/ai/health` | Health check |
+| `POST` | `/api/ai/ask` | RAG Bot hỏi đáp (intent classification) |
+| `POST` | `/api/ai/documents/index` | Lập chỉ mục tài liệu |
+| `POST` | `/api/ai/search` | Tìm kiếm ngữ nghĩa |
+| `POST` | `/api/ai/messages/reindex` | Backfill index tin nhắn cũ |
+| `POST` | `/api/ai/conversations/:id/summary` | Tóm tắt cuộc trò chuyện |
+| `POST` | `/api/ai/translate` | Dịch tin nhắn |
+| `POST` | `/api/ai/rewrite` | Viết lại tin nhắn |
+
+### Qdrant Collections
+
+| Collection | Dữ liệu | Vector dims | Metric |
+|---|---|---|---|
+| `binchat_messages` | Tin nhắn chat | 1536 | Cosine |
+| `binchat_documents` | Tài liệu RAG | 1536 | Cosine |
+
+---
+
+_Tài liệu cập nhật lần cuối: 2026-04-19 — Thêm Section 38: AI Service — BinChat AI._
+
+---
+
+### Chức năng 6: Viết lại tin nhắn (Message Rewrite)
+
+**Mục đích:** Cho phép người dùng viết lại nội dung tin nhắn theo 5 phong cách khác nhau bằng GPT-3.5-turbo.
+
+**Endpoint:**
+```
+POST /api/ai/rewrite
+Body: { "text": "nội dung cần viết lại" }  // max 2000 ký tự
+```
+
+**Response:**
+```json
+{
+  "original": "tin nhắn gốc",
+  "rewrites": [
+    { "style": "formal",       "label": "🎩 Trang trọng",    "text": "..." },
+    { "style": "casual",       "label": "😊 Thân thiện",     "text": "..." },
+    { "style": "concise",      "label": "⚡ Ngắn gọn",       "text": "..." },
+    { "style": "detailed",     "label": "📝 Chi tiết hơn",   "text": "..." },
+    { "style": "professional", "label": "💼 Chuyên nghiệp",  "text": "..." }
+  ]
+}
+```
+
+**Web UI:** Icon `🪄` (Wand2) xuất hiện trong thanh nhập liệu (MessageInput) khi có nội dung đang được soạn. Click → mở `RewriteMessageModal` với 5 thẻ kết quả, mỗi thẻ có nút **Copy** và nút **Dùng** (đổ vào ô nhập).
+
+**Mobile UI:** Icon `🪄` (Wand2) xuất hiện bên cạnh nút Gửi khi có nội dung đang soạn. Click → mở modal toàn màn hình với kết quả 5 phong cách, mỗi mục có nút **"Dùng câu này"** để tự động điền vào ô nhập.
+
+**Lưu ý:** Không cache (stateless), mỗi request gọi GPT một lần duy nhất để lấy tất cả 5 phong cách cùng lúc (tiết kiệm token).
