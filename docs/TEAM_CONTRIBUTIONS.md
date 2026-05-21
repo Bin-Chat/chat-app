@@ -195,3 +195,7 @@
 | API Gateway (typing indicator, call signaling, AI proxy)            | Lê Tấn Phong                    |
 | Friend Service (friend request logic)                               | Lê Tấn Phong                    |
 | AWS Lambda (image-processor, video-dispatcher)                      | Lê Tấn Phong                    |
+| Poll/Voting — Chat Service (schema, DTOs, service, controller)      | Đào Ngọc Anh                    |
+| Poll/Voting — Gateway (Kafka → Socket.io bridge cho poll events)    | Lê Tấn Phong                    |
+| Poll/Voting — Web UI (PollBubble, CreatePollModal, Redux wiring)    | Lê Thị Thuý Hiền                |
+| Poll/Voting — Mobile UI (PollBubble, CreatePollModal, store wiring) | Đoàn Ngọc Bảo Uyên              |
