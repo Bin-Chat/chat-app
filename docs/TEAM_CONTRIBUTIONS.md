@@ -154,6 +154,15 @@
 | 2026-04-14 | Tính năng **typing indicator** (hiển thị "đang gõ"), xử lý sự kiện `session-kicked` khi đăng xuất từ xa                                                                                                                                                                                                                                                                                         |
 | 2026-04-20 | **Call signaling**: xử lý toàn bộ luồng tín hiệu cuộc gọi (offer, answer, ICE candidate, hang up) qua WebSocket                                                                                                                                                                                                                                                                                 |
 | 2026-05-07 | Thêm **proxy routes cho AI service**: định tuyến các request tới AI service, cấu hình URL service AI                                                                                                                                                                                                                                                                                            |
+| 2026-05-21 | **Join Approval — Gateway**: thêm 3 Kafka consumers (`handleJoinRequested`, `handleJoinApproved`, `handleJoinDeclined`) → emit Socket.io `group:join_requested/approved/declined` tới đúng target (adminIds / requester / all participants)                                                                                                                                                     |
+
+### services/chat (Join Approval)
+
+| Ngày       | Công việc cụ thể                                                                                                                                                                                                                                                                                                                                                |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-05-21 | **Duyệt thành viên mới — Backend**: thêm schema `pendingMembers`, `inviteToken`, `inviteEnabled`; 3 Kafka events (`GROUP_JOIN_REQUESTED/APPROVED/DECLINED`); 7 service methods (`generateInviteLink`, `revokeInviteLink`, `joinByToken`, `getPendingJoinRequests`, `approveJoinRequest`, `declineJoinRequest`, `cancelJoinRequest`); 7 REST endpoints tương ứng |
+| 2026-05-21 | **Fix nghiệp vụ `addMembers`**: member thêm người khi `requireJoinApproval=true` → đưa vào hàng chờ `pendingMembers`, emit `GROUP_JOIN_REQUESTED` (admin/owner vẫn bypass)                                                                                                                                                                                      |
+| 2026-05-21 | **Fix nghiệp vụ `transferOwnership`**: tự động unban thành viên bị cấm khi được nhường quyền Chủ nhóm                                                                                                                                                                                                                                                           |
 
 ### services/friend
 
@@ -171,31 +180,35 @@
 
 ## Tổng hợp phân công theo tính năng
 
-| Tính năng / Module                                                  | Thành viên thực hiện            |
-| ------------------------------------------------------------------- | ------------------------------- |
-| Kiến trúc & DevOps (Docker, scripts, submodules)                    | Đào Ngọc Anh                    |
-| Authentication & Authorization (JWT, refresh token, register/login) | Đào Ngọc Anh                    |
-| User Service (Kafka broadcast)                                      | Đào Ngọc Anh                    |
-| Upload Service (S3 + presigned URL, Lambda trigger)                 | Đào Ngọc Anh                    |
-| AI Service (search, rewrite, summarize, translate)                  | Đào Ngọc Anh                    |
-| Database initialization (PostgreSQL, schema tách biệt từng service) | Đào Ngọc Anh                    |
-| Tài liệu kỹ thuật (UML, architecture docs)                          | Đào Ngọc Anh                    |
-| Web UI (auth, layout, Redux, friend/chat UI)                        | Lê Thị Thuý Hiền                |
-| Web UI (incoming call, AI modals, device management)                | Lê Thị Thuý Hiền                |
-| Web UI (voice recording & audio playback)                           | Lê Thị Thuý Hiền                |
-| Chat Service (conversation, message CRUD, pin, ban, edit)           | Lê Thị Thuý Hiền                |
-| Chat Service (system messages, AI moderation, audio type)           | Lê Thị Thuý Hiền & Đào Ngọc Anh |
-| Notification Service (email OTP)                                    | Lê Thị Thuý Hiền                |
-| Mobile App (auth, chat, friend, upload, state management)           | Đoàn Ngọc Bảo Uyên              |
-| Mobile App (group management, ban/unban, edit message)              | Đoàn Ngọc Bảo Uyên              |
-| Mobile App (WebRTC calls, create group)                             | Đoàn Ngọc Bảo Uyên              |
-| Mobile App (voice recording & audio playback)                       | Đoàn Ngọc Bảo Uyên              |
-| Auth Service (change password, profile API)                         | Đoàn Ngọc Bảo Uyên              |
-| API Gateway (Socket.io, Kafka, proxy, event consumers)              | Lê Tấn Phong                    |
-| API Gateway (typing indicator, call signaling, AI proxy)            | Lê Tấn Phong                    |
-| Friend Service (friend request logic)                               | Lê Tấn Phong                    |
-| AWS Lambda (image-processor, video-dispatcher)                      | Lê Tấn Phong                    |
-| Poll/Voting — Chat Service (schema, DTOs, service, controller)      | Đào Ngọc Anh                    |
-| Poll/Voting — Gateway (Kafka → Socket.io bridge cho poll events)    | Lê Tấn Phong                    |
-| Poll/Voting — Web UI (PollBubble, CreatePollModal, Redux wiring)    | Lê Thị Thuý Hiền                |
-| Poll/Voting — Mobile UI (PollBubble, CreatePollModal, store wiring) | Đoàn Ngọc Bảo Uyên              |
+| Tính năng / Module                                                                                                   | Thành viên thực hiện            |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Kiến trúc & DevOps (Docker, scripts, submodules)                                                                     | Đào Ngọc Anh                    |
+| Authentication & Authorization (JWT, refresh token, register/login)                                                  | Đào Ngọc Anh                    |
+| User Service (Kafka broadcast)                                                                                       | Đào Ngọc Anh                    |
+| Upload Service (S3 + presigned URL, Lambda trigger)                                                                  | Đào Ngọc Anh                    |
+| AI Service (search, rewrite, summarize, translate)                                                                   | Đào Ngọc Anh                    |
+| Database initialization (PostgreSQL, schema tách biệt từng service)                                                  | Đào Ngọc Anh                    |
+| Tài liệu kỹ thuật (UML, architecture docs)                                                                           | Đào Ngọc Anh                    |
+| Web UI (auth, layout, Redux, friend/chat UI)                                                                         | Lê Thị Thuý Hiền                |
+| Web UI (incoming call, AI modals, device management)                                                                 | Lê Thị Thuý Hiền                |
+| Web UI (voice recording & audio playback)                                                                            | Lê Thị Thuý Hiền                |
+| Chat Service (conversation, message CRUD, pin, ban, edit)                                                            | Lê Thị Thuý Hiền                |
+| Chat Service (system messages, AI moderation, audio type)                                                            | Lê Thị Thuý Hiền & Đào Ngọc Anh |
+| Notification Service (email OTP)                                                                                     | Lê Thị Thuý Hiền                |
+| Mobile App (auth, chat, friend, upload, state management)                                                            | Đoàn Ngọc Bảo Uyên              |
+| Mobile App (group management, ban/unban, edit message)                                                               | Đoàn Ngọc Bảo Uyên              |
+| Mobile App (WebRTC calls, create group)                                                                              | Đoàn Ngọc Bảo Uyên              |
+| Mobile App (voice recording & audio playback)                                                                        | Đoàn Ngọc Bảo Uyên              |
+| Auth Service (change password, profile API)                                                                          | Đoàn Ngọc Bảo Uyên              |
+| API Gateway (Socket.io, Kafka, proxy, event consumers)                                                               | Lê Tấn Phong                    |
+| API Gateway (typing indicator, call signaling, AI proxy)                                                             | Lê Tấn Phong                    |
+| Friend Service (friend request logic)                                                                                | Lê Tấn Phong                    |
+| AWS Lambda (image-processor, video-dispatcher)                                                                       | Lê Tấn Phong                    |
+| Poll/Voting — Chat Service (schema, DTOs, service, controller)                                                       | Đào Ngọc Anh                    |
+| Poll/Voting — Gateway (Kafka → Socket.io bridge cho poll events)                                                     | Lê Tấn Phong                    |
+| Poll/Voting — Web UI (PollBubble, CreatePollModal, Redux wiring)                                                     | Lê Thị Thuý Hiền                |
+| Poll/Voting — Mobile UI (PollBubble, CreatePollModal, store wiring)                                                  | Đoàn Ngọc Bảo Uyên              |
+| Join Approval — Chat Service (schema, events, 7 service methods, REST endpoints, addMembers & transferOwnership fix) | Lê Tấn Phong                    |
+| Join Approval — Gateway (3 Kafka→Socket.io consumers cho join events)                                                | Lê Tấn Phong                    |
+| Join Approval — Web UI (GroupInfoPanel: invite link, pending list, settings toggle; JoinGroup page; Redux slice)     | Lê Thị Thuý Hiền                |
+| Join Approval — Mobile UI (group-info: invite link, pending list, settings toggle; store actions; socket hooks)      | Đoàn Ngọc Bảo Uyên              |
