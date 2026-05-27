@@ -26,6 +26,8 @@ export class ModerationConsumer {
   // Listen for new chat messages to moderate
   @EventPattern('chat.message.created')
   async handleMessageSent(@Payload() event: ChatMessageSentEvent): Promise<void> {
+    // Skip moderation for bot-generated messages
+    if (event.senderId === 'binchat-ai-bot') return;
     // Only moderate text messages
     if (event.type !== 'text' || !event.content?.trim()) return;
 

@@ -31,15 +31,17 @@ const VI_HIGH_PATTERNS: RegExp[] = [
 
 // ── MEDIUM severity: profanity, sexual language, strong insults ───────────────
 const VI_MEDIUM_PATTERNS: RegExp[] = [
-  // Common single-word profanity abbreviations & full forms
-  /\b(dm|dit|lon|cac|buoi|clm|vl|vcl|vkl|wtf|cl|dkm|dcm|dmm|dkm|cc|dcc)\b/i,
-  // đ** variations with l33t spacing / dashes / dots
-  /d[\s.\-_*#@]*[iíì][\s.\-_*#@]*t/i,
-  /l[\s.\-_*#@]*[oô0][\s.\-_*#@]*[nñ]/i,
-  /c[\s.\-_*#@]*[aă][\s.\-_*#@]*c/i,
-  /b[\s.\-_*#@]*u[\s.\-_*#@]*[oô0][\s.\-_*#@]*[iíì]/i,
-  // thằng + insult noun
-  /\b(thang|thang\s*(?:cho|dien|ngu|kho|noc|dac|khung|khon|rong|toi|beo|hoi|chui|chet|dit))\b/i,
+  // Common profanity abbreviations — keep only unambiguous multi-char ones
+  // Removed: cl, vl — too short/ambiguous in Vietnamese (e.g. "chắc là", "vui lòng")
+  /\b(dm|dit|clm|vcl|vkl|dkm|dcm|dmm|dcc)\b/i,
+  // đ** variations with l33t spacing/dashes/dots — require AT LEAST ONE separator
+  // (prevents matching plain normalized Vietnamese words like các→cac, lẫn→lon, buổi→buoi)
+  /d[\s.\-_*#@]+[iíì][\s.\-_*#@]+t/i,
+  /l[\s.\-_*#@]+[oô0][\s.\-_*#@]+[nñ]/i,
+  /c[\s.\-_*#@]+[aă][\s.\-_*#@]+c/i,
+  /b[\s.\-_*#@]+u[\s.\-_*#@]+[oô0][\s.\-_*#@]+[iíì]/i,
+  // thằng + insult noun (standalone "thang" removed — matches "thắng"/victory after normalization)
+  /\b(thang\s*(?:cho|dien|ngu|kho|noc|dac|khung|khon|rong|toi|beo|hoi|chui|chet|dit))\b/i,
   // con + insult noun
   /\b(con\s*(?:cho|di|bip|dien|lon|khung|ngu|kho|rong|toi|hoi|chet))\b/i,
   // đồ + insult noun
@@ -48,8 +50,8 @@ const VI_MEDIUM_PATTERNS: RegExp[] = [
   /\b(may\s*chet|chuc\s*may\s*chet|di\s*chet\s*(?:di|thoi|het|duoc\s*roi))\b/i,
   // cút đi / xéo đi / biến đi
   /\b(cut\s*(?:di|ra|ngay|khoi)|xeo\s*(?:di|ra|ngay)|bien\s*(?:di|ra|ngay|khoi))\b/i,
-  // đụ / địt (and spacing tricks)
-  /\b(du|du\s*ma|du\s*cha|du\s*me)\b/i,
+  // đụ + target (standalone "du" removed — matches "du lịch"/travel, "du học" after normalization)
+  /\b(du\s*(?:ma|cha|me|vao|cho|het|nhau))\b/i,
   /\b(dit\s*(?:me|cha|bo|bam|vao))\b/i,
   // fuck/shit/bitch as typed by Vietnamese speakers mixed with Vietnamese
   /\b(fuck|shit|bitch|asshole|bastard)\b/i,
@@ -65,7 +67,7 @@ const VI_MEDIUM_PATTERNS: RegExp[] = [
 // ── OpenAI score thresholds ───────────────────────────────────────────────────
 const SCORE_THRESHOLD = 0.62;
 const HIGH_SCORE_THRESHOLD = 0.82;
-const MEDIUM_SCORE_THRESHOLD = 0.68;
+const MEDIUM_SCORE_THRESHOLD = 0.75;
 
 const HIGH_SEVERITY_CATEGORIES = [
   'violence',

@@ -406,6 +406,7 @@ services:
       - REDIS_PORT=6379
       - KAFKA_BROKER=redpanda:9092
       - CHAT_SERVICE_URL=http://chat-service:3040
+      - USER_SERVICE_URL=http://user-service:3020
     depends_on:
       qdrant:
         condition: service_started

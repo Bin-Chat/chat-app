@@ -12,6 +12,6 @@ import { SearchService } from './search.service';
   imports: [QdrantModule, KafkaModule],
   controllers: [SearchController, MessageIndexConsumer],
   providers: [SearchService, MessageIndexerService],
-  exports: [MessageIndexerService],
+  exports: [MessageIndexerService, SearchService],
 })
 export class SearchModule {}
