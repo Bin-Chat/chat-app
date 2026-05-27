@@ -37,3 +37,6 @@
 [submodule "services/upload"]
 	path = services/upload
 	url = https://github.com/Bin-Chat/chat-app-service-upload.git
+[submodule "services/ai"]
+	path = services/ai
+	url = https://github.com/Bin-Chat/chat-app-service-ai.git
