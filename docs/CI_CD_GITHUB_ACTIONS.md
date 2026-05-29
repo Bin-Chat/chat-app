@@ -1,50 +1,66 @@
-# CI/CD Bang GitHub Actions
+# CI/CD GitHub Actions Cho BinChat
 
-File nay huong dan thiet lap CI/CD cho BinChat:
+Tai lieu nay mo ta CI/CD thuc te cho setup hien tai:
 
-- Kiem tra build khi push/pull request.
-- Deploy backend len EC2 bang SSH.
-- Deploy web len Vercel.
-- Trigger Android build bang Expo EAS.
+- Web deploy len Vercel.
+- Backend deploy len EC2 bang Docker Compose.
+- Backend co nhieu service va nhieu repo con/submodule.
+- Khong dung Docker Hub/ECR de tiet kiem chi phi.
 
-## 1. Y tuong tong quan
+## 1. Cac workflow da tao
 
-Phuong an re nhat:
+```txt
+.github/workflows/backend-ci.yml
+.github/workflows/deploy-backend-ec2.yml
+.github/workflows/deploy-web-vercel.yml
+docs/templates/service-repo-dispatch-backend.yml
+docs/templates/web-repo-dispatch.yml
+```
 
-- Khong dung Docker registry rieng.
-- Khong dung AWS ECR.
-- Khong dung ECS.
-- GitHub Actions SSH vao EC2, chay `git pull`, `docker compose up -d --build`.
-- Web de Vercel tu deploy tu GitHub hoac deploy bang Vercel CLI.
-- Android de EAS Build build tren cloud Expo.
+Workflow cu `.github/workflows/ci-cd.yml` da duoc thay the vi khong con khop voi repo hien tai.
 
-## 2. Tao GitHub Secrets
+## 2. Cach hieu repo nhieu service/nhieu repo
+
+Root repo `chat-app` la repo dieu phoi. Nhieu thu muc la submodule/repo rieng:
+
+```txt
+apps/web
+apps/mobile
+gateway
+services/auth
+services/user
+services/friend
+services/notification
+services/upload
+services/chat
+services/ai
+```
+
+Voi mo hinh nay co 2 cach deploy:
+
+1. Cap nhat submodule pointer trong root repo roi push root repo.
+2. De EC2 pull latest branch `main` cua tung submodule khi deploy.
+
+Workflow backend dang dung cach 2 de thuc te hon: khi deploy, EC2 vao tung submodule, `git fetch`, `checkout main`, `pull --ff-only`, roi build service co thay doi.
+
+## 3. GitHub Secrets can tao
 
 Vao GitHub repo:
 
-1. `Settings`.
-2. `Secrets and variables`.
-3. `Actions`.
-4. `New repository secret`.
-
-Them cac secret sau.
-
-### 2.1 Secret cho backend deploy
-
-| Secret | Noi dung |
-|---|---|
-| `EC2_HOST` | IP hoac domain server, vi du `api.example.com` |
-| `EC2_USER` | Thuong la `ubuntu` neu dung Ubuntu AMI |
-| `EC2_SSH_KEY` | Private key SSH de vao EC2 |
-| `EC2_PORT` | Thuong la `22` |
-
-Lay private key:
-
-```bash
-cat ~/.ssh/id_ed25519
+```txt
+Settings -> Secrets and variables -> Actions -> New repository secret
 ```
 
-Dan toan bo noi dung vao secret `EC2_SSH_KEY`, bao gom:
+### Backend EC2
+
+| Secret | Gia tri |
+|---|---|
+| `EC2_HOST` | `api.binchat.me` hoac `52.77.144.174` |
+| `EC2_USER` | `ubuntu` |
+| `EC2_PORT` | `22` |
+| `EC2_SSH_KEY` | private key SSH de vao EC2 |
+
+`EC2_SSH_KEY` phai gom day du:
 
 ```txt
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -52,337 +68,382 @@ Dan toan bo noi dung vao secret `EC2_SSH_KEY`, bao gom:
 -----END OPENSSH PRIVATE KEY-----
 ```
 
-### 2.2 Secret cho Vercel CLI neu can
+Public key tuong ung phai nam trong EC2:
 
-Neu ban de Vercel auto deploy tu GitHub thi khong can nhom nay.
+```txt
+~/.ssh/authorized_keys
+```
 
-Neu muon deploy bang workflow:
+### Web Vercel
 
-| Secret | Noi dung |
+| Secret | Gia tri |
 |---|---|
-| `VERCEL_TOKEN` | Token tu Vercel account |
-| `VERCEL_ORG_ID` | Org/team ID |
-| `VERCEL_PROJECT_ID` | Project ID |
+| `VERCEL_TOKEN` | token tu Vercel |
+| `VERCEL_ORG_ID` | org/team id |
+| `VERCEL_PROJECT_ID` | project id cua web |
 
-Lay token:
-
-1. Vao Vercel.
-2. Account Settings.
-3. Tokens.
-4. Create token.
-
-Lay org/project ID:
+Lay Vercel project id:
 
 ```bash
-npm i -g vercel
-vercel login
 cd apps/web
-vercel link
+npx vercel login
+npx vercel link
 cat .vercel/project.json
 ```
 
-### 2.3 Secret cho Expo EAS
+Trong Vercel project cung can co env:
 
-| Secret | Noi dung |
+```env
+VITE_API_URL=https://api.binchat.me
+VITE_SOCKET_URL=https://api.binchat.me
+```
+
+## 4. Backend CI
+
+File:
+
+```txt
+.github/workflows/backend-ci.yml
+```
+
+Chay khi PR/push dung cac path backend:
+
+```txt
+gateway/**
+services/**
+docker-compose.yml
+docker-compose.env-production.yml
+```
+
+No lam:
+
+- Detect service nao thay doi.
+- Build Docker image cua service do tren GitHub runner.
+- Dung GitHub Actions cache cho Docker layer.
+- Khong push image len registry.
+
+Muc dich: bat loi Dockerfile/build truoc khi deploy EC2.
+
+## 5. Deploy Backend Len EC2
+
+File:
+
+```txt
+.github/workflows/deploy-backend-ec2.yml
+```
+
+Co 2 cach chay:
+
+- Tu dong khi push `main` co thay doi backend.
+- Thu cong trong tab Actions bang `Run workflow`.
+
+Workflow nay SSH vao EC2 va chay trong:
+
+```txt
+~/chat-app
+```
+
+No lam:
+
+1. Pull root repo.
+2. Sync submodule.
+3. Pull latest `main` cua tung service repo/submodule.
+4. So sanh commit hien tai voi lan deploy truoc.
+5. Build service thay doi, tung service mot de tranh EC2 het RAM/npm ECONNRESET.
+6. Chay:
+
+```bash
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.env-production.yml up -d --no-build --remove-orphans
+```
+
+7. Health check:
+
+```bash
+curl http://localhost:3000/api/health
+curl https://api.binchat.me/api/health
+```
+
+### Build mode
+
+Khi chay thu cong, co input `build_mode`:
+
+| Mode | Khi dung |
 |---|---|
-| `EXPO_TOKEN` | Token cua Expo |
+| `changed` | Mac dinh, chi build service co commit moi |
+| `all` | Build lai tat ca service |
+| `single` | Build lai 1 service |
+| `none` | Khong build, chi recreate container |
 
-Lay token:
-
-1. Vao https://expo.dev
-2. Account settings.
-3. Access tokens.
-4. Create token.
-
-## 3. Workflow CI kiem tra build
-
-Tao file:
+Neu chon `single`, chon them `service`, vi du:
 
 ```txt
-.github/workflows/ci.yml
+api-gateway
+auth-service
+chat-service
+ai-service
 ```
 
-Noi dung:
+## 6. Deploy Web Len Vercel
 
-```yaml
-name: CI
-
-on:
-  pull_request:
-  push:
-    branches:
-      - main
-
-jobs:
-  web-build:
-    name: Build web
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build web
-        run: npm run web:build
-
-  backend-build:
-    name: Build backend images
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Build docker images
-        run: docker compose build
-```
-
-Neu repo private va co submodule private, can cau hinh SSH key/deploy key rieng cho submodule.
-
-## 4. Workflow deploy backend len EC2
-
-Tao file:
-
-```txt
-.github/workflows/deploy-backend.yml
-```
-
-Noi dung:
-
-```yaml
-name: Deploy Backend
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "services/**"
-      - "gateway/**"
-      - "docker-compose.yml"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-backend.yml"
-
-concurrency:
-  group: deploy-backend-production
-  cancel-in-progress: false
-
-jobs:
-  deploy:
-    name: Deploy to EC2
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Deploy by SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT }}
-          script_stop: true
-          script: |
-            set -e
-            cd ~/apps/chat-app
-            git fetch --all
-            git reset --hard origin/main
-            git submodule update --init --recursive
-            docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-            docker image prune -f
-            docker ps
-```
-
-Can biet:
-
-- `.env` production nam tren server, khong commit vao GitHub.
-- Workflow khong in secret ra log.
-- `git reset --hard origin/main` tren server chi dung vi server la ban deploy, khong chua code edit tay. Neu ban hay sua code truc tiep tren server, doi thanh `git pull`.
-
-## 5. Them approval truoc khi deploy production
-
-De tranh push la deploy ngay:
-
-1. Vao GitHub repo.
-2. `Settings` -> `Environments`.
-3. Tao environment `production`.
-4. Bat `Required reviewers`.
-5. Chon ban hoac leader.
-
-Workflow tren co:
-
-```yaml
-environment: production
-```
-
-Nen GitHub se cho approve truoc khi deploy.
-
-## 6. Workflow deploy web bang Vercel CLI
-
-Neu da ket noi Vercel voi GitHub, khong can workflow nay. Vercel tu deploy la de nhat.
-
-Neu muon GitHub Actions tu deploy:
-
-Tao file:
+File:
 
 ```txt
 .github/workflows/deploy-web-vercel.yml
 ```
 
-Noi dung:
+Chay khi:
 
-```yaml
-name: Deploy Web to Vercel
+- Push thay doi `apps/web/**`.
+- Chay thu cong trong tab Actions.
 
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/web/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy-web-vercel.yml"
+No lam:
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+1. Checkout root repo va submodule.
+2. `npm ci` trong `apps/web`.
+3. `npm run build`.
+4. `vercel pull`.
+5. `vercel build --prod`.
+6. `vercel deploy --prebuilt --prod`.
+7. Smoke check URL vua deploy.
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+Neu ban da noi Vercel truc tiep voi GitHub repo `apps/web`, co the tat workflow nay va de Vercel auto deploy. Nhung workflow nay huu ich khi muon root repo dieu phoi tat ca.
 
-      - name: Install Vercel CLI
-        run: npm install -g vercel
+## 7. Chuan bi EC2 truoc khi bat CI/CD backend
 
-      - name: Pull Vercel environment
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Build
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Deploy
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-```
-
-## 7. Workflow trigger Android EAS Build
-
-Truoc khi dung CI, phai build thanh cong 1 lan tren may local bang EAS. Ly do: EAS can tao project ID, credentials, `eas.json`.
-
-Tao file:
+Tren EC2 phai co:
 
 ```txt
-.github/workflows/eas-android.yml
+~/chat-app
+~/chat-app/.env
+~/chat-app/docker-compose.yml
+~/chat-app/docker-compose.env-production.yml
 ```
 
-Noi dung:
+Docker dang chay:
 
-```yaml
-name: EAS Android Build
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/mobile/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/eas-android.yml"
-
-jobs:
-  build:
-    name: Trigger Android build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup Expo and EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Trigger EAS Android build
-        working-directory: apps/mobile
-        run: eas build --platform android --profile preview --non-interactive --no-wait
+```bash
+docker --version
+docker compose version
 ```
 
-`--no-wait` giup GitHub Actions thoat sau khi trigger build, khong ton phut CI trong luc Expo build.
+Neu user `ubuntu` chua dung Docker khong can sudo, workflow van OK vi lenh deploy dung `sudo docker`.
 
-## 8. Kiem tra workflow sau khi tao
+Can dam bao deploy key/SSH key tren EC2 co quyen pull root repo va cac submodule private.
 
-1. Commit cac file workflow.
-2. Push len GitHub.
-3. Vao tab `Actions`.
-4. Chon workflow.
-5. Bam `Run workflow` neu workflow co `workflow_dispatch`.
-6. Xem log.
+Test thu tren EC2:
 
-Neu loi SSH:
+```bash
+cd ~/chat-app
+git pull
+git submodule update --init --recursive
+git submodule foreach --recursive 'git fetch origin'
+```
 
-- Kiem tra `EC2_HOST`.
-- Kiem tra `EC2_USER`.
-- Kiem tra private key co dung khong.
-- Kiem tra public key co nam trong `~/.ssh/authorized_keys` tren server khong.
+Neu lenh nay fail vi permission, CI/CD cung se fail.
 
-Neu loi Docker:
+## 8. Xu ly submodule private
 
-- SSH vao server.
-- Chay thu lenh deploy bang tay.
-- Xem `docker compose logs`.
+Neu service repo private, EC2 can deploy key.
 
-## 9. Nguyen tac bao mat khi dung CI/CD
+Tren EC2 tao key:
+
+```bash
+ssh-keygen -t ed25519 -C "ec2-binchat-deploy"
+cat ~/.ssh/id_ed25519.pub
+```
+
+Vao tung repo private tren GitHub:
+
+```txt
+Repo -> Settings -> Deploy keys -> Add deploy key
+```
+
+Paste public key. Neu EC2 chi pull code, khong tick write access.
+
+## 9. Cach chay lan dau
+
+1. Push cac workflow len GitHub.
+2. Vao GitHub repo -> `Actions`.
+3. Chon `Deploy Backend to EC2`.
+4. Bam `Run workflow`.
+5. Chon:
+
+```txt
+build_mode: all
+update_submodules: true
+```
+
+Lan dau nen build `all` de workflow luu state commit. Cac lan sau chon `changed`.
+
+## 10. Cach deploy khi chi sua 1 service
+
+Vi du chi sua AI service:
+
+1. Push code len repo `services/ai`.
+2. Vao root repo GitHub -> Actions.
+3. Chay `Deploy Backend to EC2`.
+4. Chon:
+
+```txt
+build_mode: single
+service: ai-service
+update_submodules: true
+```
+
+Workflow se vao EC2, pull latest `services/ai`, build `ai-service`, recreate stack.
+
+## 10.1 Tu dong deploy khi push vao repo service rieng
+
+Neu ban muon push vao repo rieng, vi du `chat-app-service-ai`, roi tu dong yeu cau root repo deploy, dung template:
+
+```txt
+docs/templates/service-repo-dispatch-backend.yml
+```
+
+Copy file nay vao repo service rieng:
+
+```txt
+.github/workflows/request-deploy.yml
+```
+
+Sua:
+
+```txt
+<owner>/<root-repo>
+<compose-service-name>
+```
+
+Vi du voi AI service:
+
+```txt
+<compose-service-name> = ai-service
+```
+
+Trong repo service rieng, tao secret:
+
+```txt
+ROOT_REPO_DISPATCH_TOKEN
+```
+
+Token nay can quyen `contents: read/write` hoac fine-grained permission duoc phep `repository dispatch` tren root repo.
+
+Root workflow `.github/workflows/deploy-backend-ec2.yml` da lang nghe event:
+
+```txt
+repository_dispatch: backend-deploy
+```
+
+## 11. Cach deploy khi sua web
+
+Neu dung workflow root:
+
+1. Cap nhat submodule `apps/web` trong root repo, hoac push thay doi trong root neu dang lam truc tiep.
+2. Chay `Deploy Web to Vercel`.
+
+Neu Vercel dang link truc tiep repo `chat-app-ui-web`, thi chi can push repo web, Vercel tu deploy.
+
+Neu muon repo web rieng trigger root workflow, copy:
+
+```txt
+docs/templates/web-repo-dispatch.yml
+```
+
+vao repo web:
+
+```txt
+.github/workflows/request-web-deploy.yml
+```
+
+Root workflow `.github/workflows/deploy-web-vercel.yml` da lang nghe event:
+
+```txt
+repository_dispatch: web-deploy
+```
+
+## 12. Rollback nhanh
+
+### Backend
+
+SSH vao EC2:
+
+```bash
+cd ~/chat-app
+```
+
+Rollback root repo:
+
+```bash
+git log --oneline -5
+git checkout <old_commit>
+git submodule update --init --recursive
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.env-production.yml up -d --no-build
+```
+
+Neu can build lai:
+
+```bash
+sudo env COMPOSE_PARALLEL_LIMIT=1 docker compose --env-file .env -f docker-compose.yml -f docker-compose.env-production.yml build api-gateway
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.env-production.yml up -d --no-build
+```
+
+### Web
+
+Vao Vercel:
+
+```txt
+Project -> Deployments -> chon deployment cu -> Promote to Production
+```
+
+## 13. Bao mat
 
 - Khong commit `.env`.
-- Khong in secret bang `echo`.
-- Dung GitHub Environments de yeu cau approval khi deploy production.
-- Private key SSH chi nen co quyen vao server deploy.
-- Neu duoc, tao user rieng `deploy` thay vi dung `ubuntu`.
-- Khong mo database ra Internet.
-- Backup database truoc khi deploy thay doi lon.
+- Khong commit `.env.production` co secret.
+- Dung GitHub Environment `production` de bat approve truoc deploy.
+- Chi mo public port `80`, `443`, va `22` gioi han My IP.
+- Khong public database ports.
+- Backup DB truoc khi deploy thay doi lon.
 
-## 10. Nguon tham khao
+## 14. Loi thuong gap
 
-- GitHub Actions secrets: https://docs.github.com/actions/reference/encrypted-secrets
-- GitHub Actions contexts: https://docs.github.com/actions/learn-github-actions/contexts
-- GitHub deployments/environments: https://docs.github.com/actions/deployment/about-deployments/deploying-with-github-actions
-- appleboy ssh-action: https://github.com/appleboy/ssh-action
-- Expo build on CI: https://docs.expo.dev/build/building-on-ci/
-- Vercel CLI deploy: https://vercel.com/docs/cli/deploy
+### CORS sau deploy
+
+Kiem tra tren EC2:
+
+```bash
+sudo docker exec api-gateway printenv CORS_ORIGIN
+```
+
+Phai co:
+
+```txt
+https://binchat.me,https://www.binchat.me
+```
+
+### Deploy fail vi Git permission
+
+Tren EC2:
+
+```bash
+cd ~/chat-app
+git pull
+git submodule foreach --recursive 'git pull'
+```
+
+Repo nao fail thi them deploy key vao repo do.
+
+### Docker build qua cham
+
+Workflow da build tung service mot. Neu van cham:
+
+- Nang EC2 len `t3.medium`.
+- Tao swap.
+- Chon `build_mode=single` khi chi sua 1 service.
+
+### Health check fail
+
+Xem log:
+
+```bash
+sudo docker logs api-gateway --tail=120
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.env-production.yml ps
+```

@@ -1,333 +1,306 @@
-# Build App Android Bang Expo EAS
+# Build Android APK Bang Expo EAS
 
-File nay huong dan build `apps/mobile` ra Android APK/AAB. App mobile cua repo dung Expo SDK 54, Expo Router, React Native.
+File nay chi huong dan build app mobile ra file APK de cai truc tiep len dien thoai Android. Khong can Google Play, khong can build AAB.
 
-## 1. APK va AAB khac nhau the nao?
-
-| Dinh dang | Dung khi nao |
-|---|---|
-| APK | Cai truc tiep len dien thoai/emulator de test |
-| AAB | Upload len Google Play Store |
-
-Neu ban chi can gui file cho thay/co ban be test, build APK.
-
-Neu ban muon phat hanh len Google Play, build AAB.
-
-## 2. Chuan bi tai khoan va cong cu
-
-Can co:
-
-- Node.js 20 hoac moi hon.
-- Tai khoan Expo.
-- Backend production HTTPS, vi du `https://api.example.com`.
-- Android phone hoac Android Emulator.
-
-Cai EAS CLI:
+Repo mobile nam o:
 
 ```bash
-npm install -g eas-cli
+apps/mobile
 ```
 
-Dang nhap:
+Backend production/demo dang dung:
 
-```bash
-eas login
-eas whoami
+```txt
+https://api.binchat.me
 ```
 
-## 3. Kiem tra app config
+## 1. Ket qua minh da config san
 
-File `apps/mobile/app.json` hien co:
+File `apps/mobile/app.json` da cau hinh:
 
 ```json
 {
   "expo": {
-    "name": "ChatApp",
-    "slug": "chat-app-mobile",
+    "name": "BinChat",
+    "slug": "binchat-mobile",
+    "owner": "ngocanh25092004",
+    "scheme": "binchat",
     "android": {
-      "package": "com.chatapp.mobile",
-      "permissions": ["android.permission.RECORD_AUDIO"]
+      "package": "me.binchat.mobile",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "extra": {
+      "apiUrl": "https://api.binchat.me",
+      "socketUrl": "https://api.binchat.me",
+      "eas": {
+        "projectId": "d0602f73-442b-4efc-b787-f60a135d65d5"
+      }
     }
   }
 }
 ```
 
-Truoc khi release that, nen doi:
+Y nghia:
 
-- `name`: ten hien thi app.
-- `slug`: ten project Expo.
-- `android.package`: package duy nhat, vi du `com.yourteam.binchat`.
+- `name`: ten app hien tren dien thoai.
+- `slug`: ten project tren Expo.
+- `owner`: tai khoan Expo dang so huu project.
+- `android.package`: dinh danh app Android, khong dung dau cach, khong viet hoa.
+- `projectId`: ID project EAS, da duoc tao bang `eas init`.
 
-Can quy tac:
-
-- `android.package` khong duoc trung app khac tren Google Play.
-- Nen quyet dinh som vi doi package sau nay rat phien.
-
-## 4. Tao file `.env` cho mobile
-
-Trong `apps/mobile`, tao file:
-
-```bash
-cd apps/mobile
-nano .env
-```
-
-Noi dung:
-
-```env
-EXPO_PUBLIC_API_URL=https://api.example.com
-EXPO_PUBLIC_SOCKET_URL=https://api.example.com
-```
-
-Kiem tra trong source:
-
-- API dung `EXPO_PUBLIC_API_URL`.
-- Socket mobile dung `getApiUrl()`, nen production can `EXPO_PUBLIC_API_URL`.
-
-## 5. Cau hinh EAS lan dau
-
-Tu thu muc mobile:
-
-```bash
-cd apps/mobile
-eas build:configure
-```
-
-Lenh nay se tao/cap nhat `eas.json`.
-
-Neu chua co `eas.json`, tao noi dung nay:
+File `apps/mobile/eas.json` da co profile `preview` de build APK:
 
 ```json
 {
-  "cli": {
-    "version": ">= 13.0.0"
-  },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.example.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://api.example.com"
-      }
-    },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.example.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://api.example.com"
-      }
-    },
-    "production": {
-      "android": {
-        "buildType": "app-bundle"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.example.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://api.example.com"
+        "EXPO_PUBLIC_API_URL": "https://api.binchat.me",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.binchat.me"
       }
     }
   }
 }
 ```
 
-Ghi chu:
+## 2. Cai cong cu tren may
 
-- `preview` tao APK de cai truc tiep.
-- `production` tao AAB de upload Google Play.
+Can co Node.js va npm. Kiem tra:
 
-## 6. Build APK de test tren dien thoai
+```bash
+node -v
+npm -v
+```
+
+Neu chua co EAS CLI, co the dung truc tiep qua `npx`, khong bat buoc cai global.
+
+Dang nhap Expo:
+
+```bash
+cd apps/mobile
+npx eas login
+npx eas whoami
+```
+
+Tai khoan hien tai minh da test duoc:
+
+```txt
+ngocanh25092004
+```
+
+## 3. Cai dependency mobile
+
+Chay trong thu muc mobile:
+
+```bash
+cd apps/mobile
+npm install
+```
+
+Neu Expo bao dependency lech version, chay:
+
+```bash
+npx expo install --check
+```
+
+Neu can sua tu dong cac dependency Expo theo SDK hien tai:
+
+```bash
+npx expo install expo-asset expo-haptics expo expo-file-system expo-image-picker expo-linking
+```
+
+## 4. Kiem tra truoc khi build
 
 Chay:
 
 ```bash
 cd apps/mobile
-eas build --platform android --profile preview
+npx expo-doctor
 ```
 
-Lan dau EAS co the hoi:
+Ket qua tot la:
 
-- Co muon tao Android keystore khong?
-- Chon de Expo tu quan ly credentials neu ban moi bat dau.
+```txt
+18/18 checks passed. No issues detected!
+```
 
-Sau khi build xong, EAS in ra link. Mo link do tren dien thoai Android va tai APK.
+Minh da chay ngay tren project nay va da qua `18/18`.
 
-Neu Android chan cai app:
+## 5. Build APK de cai truc tiep
 
-1. Mo Settings.
-2. Tim `Install unknown apps`.
-3. Cho phep trinh duyet/file manager cai APK.
-4. Cai lai APK.
+Chay lenh nay:
 
-## 7. Cai APK bang adb
+```bash
+cd apps/mobile
+npm run build:android
+```
 
-Neu dung Android Emulator hoac phone cam cap USB:
+Lenh tren tuong duong:
+
+```bash
+npx eas build --platform android --profile preview
+```
+
+Lan dau EAS co the hoi ve Android credentials/keystore. Neu moi lam demo, chon de Expo tu quan ly credentials.
+
+Sau khi build xong, terminal se in ra link Expo. Mo link do de tai file `.apk`.
+
+## 6. Build khong cho terminal doi lau
+
+Neu chi muon day job len Expo roi tat terminal:
+
+```bash
+cd apps/mobile
+npx eas build --platform android --profile preview --non-interactive --no-wait
+```
+
+Sau do xem trang thai:
+
+```bash
+npx eas build:list --platform android --limit 1
+```
+
+Build minh vua gui len EAS:
+
+```txt
+Project: @ngocanh25092004/binchat-mobile
+Profile: preview
+Status: in progress
+Build URL: https://expo.dev/accounts/ngocanh25092004/projects/binchat-mobile/builds/d9c5bbfa-9752-44a3-839b-31a846efb7f4
+```
+
+Khi status thanh `finished`, trong trang build se co nut tai APK.
+
+## 7. Cai APK len dien thoai
+
+Cach de nhat:
+
+1. Mo link build tren dien thoai Android.
+2. Tai file APK.
+3. Neu may chan, vao Settings.
+4. Tim `Install unknown apps`.
+5. Cho phep Chrome hoac File Manager cai app.
+6. Bam lai file APK de cai.
+
+## 8. Cai APK bang adb
+
+Neu dung emulator hoac cam cap USB:
 
 ```bash
 adb devices
-adb install path/to/app.apk
+adb install path/to/binchat.apk
 ```
 
 Neu da cai ban cu:
 
 ```bash
-adb install -r path/to/app.apk
+adb install -r path/to/binchat.apk
 ```
 
-Neu bi loi signature/package:
+Neu loi do trung package/signature:
 
 ```bash
-adb uninstall com.chatapp.mobile
-adb install path/to/app.apk
+adb uninstall me.binchat.mobile
+adb install path/to/binchat.apk
 ```
 
-## 8. Build AAB de upload Google Play
+## 9. Test sau khi cai
 
-Chay:
+Mo app va test cac muc nay:
 
-```bash
-cd apps/mobile
-eas build --platform android --profile production
-```
-
-Ket qua la file `.aab`.
-
-Google Play yeu cau tai khoan Google Play Developer, hien thuong co phi dang ky mot lan. Sau khi co AAB:
-
-1. Vao Google Play Console.
-2. Tao app moi.
-3. Khai bao app name, language, app/game.
-4. Vao `Testing` hoac `Production`.
-5. Tao release.
-6. Upload `.aab`.
-7. Dien release notes.
-8. Hoan thanh cac muc policy/content rating/data safety.
-9. Submit review.
-
-## 9. Build Android tu GitHub Actions
-
-Doc [CI_CD_GITHUB_ACTIONS.md](./CI_CD_GITHUB_ACTIONS.md), phan `Workflow trigger Android EAS Build`.
-
-Tom tat:
-
-1. Tao `EXPO_TOKEN`.
-2. Them vao GitHub Secrets.
-3. Tao workflow dung `expo/expo-github-action`.
-4. Chay:
-
-```yaml
-eas build --platform android --profile preview --non-interactive --no-wait
-```
-
-Quan trong: Phai build thanh cong 1 lan tren may local truoc, de EAS tao project ID va credentials.
-
-## 10. Test app sau khi cai
-
-Checklist:
-
-- Mo app khong crash.
+- App mo khong crash.
 - Dang ky/dang nhap duoc.
-- Refresh app van giu session.
-- Chat realtime duoc.
-- Upload anh/audio duoc.
-- Voice message ghi am duoc, vi app co permission `RECORD_AUDIO`.
-- Goi audio/video neu co TURN server.
-- `@bot` tra loi neu AI service/OpenAI key OK.
+- API dang goi ve `https://api.binchat.me`, khong phai localhost.
+- Gui/nhan tin nhan realtime duoc.
+- Upload anh/file duoc.
+- Ghi am voice message xin quyen micro va gui duoc.
 
-## 11. Loi thuong gap
-
-### 11.1 App goi nham localhost
-
-Trong production build, `localhost` la chinh dien thoai, khong phai server.
-
-Kiem tra:
-
-```env
-EXPO_PUBLIC_API_URL=https://api.example.com
-```
-
-Neu build roi moi sua `.env`, phai build lai. Bien `EXPO_PUBLIC_*` duoc bundle vao app khi build.
-
-### 11.2 Network request failed
-
-Kiem tra:
-
-- `https://api.example.com/api/health` mo duoc tren trinh duyet dien thoai.
-- SSL hop le.
-- Backend CORS co cho mobile origin khong. Mobile native khong bi CORS nhu browser, nhung cookie/API van can backend dung.
-- EC2 Security Group mo 443.
-
-### 11.3 Socket khong realtime
-
-Kiem tra:
-
-- Mobile socket dang dung `getApiUrl()`.
-- `EXPO_PUBLIC_API_URL` la HTTPS backend.
-- Server Caddy reverse proxy `/socket.io` ve gateway.
-- Gateway Socket.IO dang chay.
-
-### 11.4 Build fail vi package name
-
-Kiem tra `android.package` trong `app.json`.
-
-Dung format:
+Neu API loi, mo trinh duyet tren dien thoai va test:
 
 ```txt
-com.company.appname
+https://api.binchat.me/api/health
 ```
 
-Khong dung dau gach ngang, khong viet hoa.
+Neu link tren khong mo duoc, loi nam o backend/domain/SSL, khong phai APK.
 
-### 11.5 Build fail vi dependency Expo
+## 10. Loi thuong gap
+
+### App goi nham localhost
+
+Mobile production khong duoc dung `localhost`, vi `localhost` tren dien thoai la chinh dien thoai.
+
+Kiem tra trong `apps/mobile/eas.json`:
+
+```json
+"EXPO_PUBLIC_API_URL": "https://api.binchat.me",
+"EXPO_PUBLIC_SOCKET_URL": "https://api.binchat.me"
+```
+
+Sua xong phai build lai APK.
+
+### EAS bao project not configured
 
 Chay:
 
 ```bash
 cd apps/mobile
-npx expo doctor
+npx eas init
 ```
 
-Neu Expo de xuat version package, sua theo huong dan.
+Project hien tai da duoc init san voi:
 
-## 12. Build local khong dung EAS co nen khong?
+```txt
+d0602f73-442b-4efc-b787-f60a135d65d5
+```
 
-Co the, nhung khong khuyen nghi cho nguoi moi vi phai cai Android Studio, JDK, Gradle, Android SDK.
+### expo-doctor bao thieu package
 
-Neu van muon:
+Chay:
 
 ```bash
 cd apps/mobile
-npx expo prebuild
-cd android
-./gradlew assembleRelease
+npx expo install --check
 ```
 
-Tren Windows:
+Sau do chay lai:
 
-```powershell
+```bash
+npx expo-doctor
+```
+
+### Socket khong realtime
+
+Kiem tra:
+
+- `EXPO_PUBLIC_SOCKET_URL=https://api.binchat.me`.
+- Backend gateway co expose `/socket.io`.
+- Reverse proxy Caddy/Nginx co proxy WebSocket.
+- EC2 Security Group mo HTTPS port `443`.
+
+### Khong cai duoc APK
+
+Thu:
+
+```bash
+adb uninstall me.binchat.mobile
+adb install path/to/binchat.apk
+```
+
+Neu cai bang dien thoai, bat quyen `Install unknown apps`.
+
+## 11. Lenh hay dung
+
+```bash
 cd apps/mobile
-npx expo prebuild
-cd android
-.\gradlew.bat assembleRelease
+npx expo-doctor
+npm run build:android
+npx eas build:list --platform android --limit 1
 ```
 
-APK se nam trong:
-
-```txt
-android/app/build/outputs/apk/release/
-```
-
-Nhung voi repo nay, EAS la cach de hon va it loi moi truong hon.
-
-## 13. Nguon tham khao
-
-- EAS Build setup: https://docs.expo.dev/build/setup/
-- Build APK: https://docs.expo.dev/build-reference/apk
-- EAS Build on CI: https://docs.expo.dev/build/building-on-ci/
-- Android build process: https://docs.expo.dev/build-reference/android-builds/

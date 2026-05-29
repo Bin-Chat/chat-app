@@ -85,14 +85,14 @@ Ban nen co san:
 - Tai khoan Expo.
 - Tai khoan OpenAI va `OPENAI_API_KEY`.
 - Email SMTP de gui mail, vi du Gmail App Password hoac SMTP provider khac.
-- Domain rieng, vi du `api.example.com`, neu muon HTTPS dep va de dung cho mobile.
+- Domain rieng, vi du `api.binchat.me`, neu muon HTTPS dep va de dung cho mobile.
 
 Ten mien khuyen nghi:
 
 | Muc dich | Vi du |
 |---|---|
-| Backend API Gateway | `api.example.com` |
-| Web Vercel | `chat.example.com` hoac domain Vercel mac dinh |
+| Backend API Gateway | `api.binchat.me` |
+| Web Vercel | `binchat.me` hoac domain Vercel mac dinh |
 | S3/CDN media | `https://bucket.s3.region.amazonaws.com` luc re nhat |
 
 ## 5. Nhung diem can biet rieng cua source hien tai
@@ -100,14 +100,14 @@ Ten mien khuyen nghi:
 1. Web goi API bang bien moi truong:
 
 ```env
-VITE_API_URL=https://api.example.com
+VITE_API_URL=https://api.binchat.me
 ```
 
 2. Mobile goi API bang bien moi truong:
 
 ```env
-EXPO_PUBLIC_API_URL=https://api.example.com
-EXPO_PUBLIC_SOCKET_URL=https://api.example.com
+EXPO_PUBLIC_API_URL=https://api.binchat.me
+EXPO_PUBLIC_SOCKET_URL=https://api.binchat.me
 ```
 
 3. Web Socket.IO hien tai trong `apps/web/src/services/appSocket.ts` dang ket noi tuong doi bang `io('/')`. Khi deploy web len Vercel va backend nam o AWS, nen sua thanh:

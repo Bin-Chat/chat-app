@@ -243,14 +243,14 @@ Neu co domain, tao DNS record:
 ```txt
 Type: A
 Name: api
-Value: <ELASTIC_IP>
+Value: 52.77.144.174
 TTL: Auto
 ```
 
 Ket qua:
 
 ```txt
-api.example.com -> <ELASTIC_IP>
+api.binchat.me -> 52.77.144.174
 ```
 
 Neu dung Cloudflare, de proxy `DNS only` luc dau cho de cap Let's Encrypt. Sau khi chay on dinh co the bat proxy tuy nhu cau.
@@ -258,7 +258,7 @@ Neu dung Cloudflare, de proxy `DNS only` luc dau cho de cap Let's Encrypt. Sau k
 Kiem tra DNS:
 
 ```bash
-nslookup api.example.com
+nslookup api.binchat.me
 ```
 
 ## 7. SSH vao EC2
@@ -268,13 +268,13 @@ nslookup api.example.com
 Voi Ubuntu AMI, user mac dinh la `ubuntu`:
 
 ```bash
-ssh -i ~/Downloads/binchat-ec2-key.pem ubuntu@<ELASTIC_IP>
+ssh -i ~/Downloads/binchat-ec2-key.pem ubuntu@52.77.144.174
 ```
 
 Hoac:
 
 ```bash
-ssh -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.example.com
+ssh -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.binchat.me
 ```
 
 ### 7.2 SSH bang EC2 Instance Connect
@@ -310,7 +310,7 @@ Dang xuat va vao lai:
 
 ```bash
 exit
-ssh -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.example.com
+ssh -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.binchat.me
 ```
 
 Kiem tra:
@@ -340,8 +340,7 @@ Neu server cham, do swap chi la cuu canh. Giai phap ben hon la tang len `t3.medi
 ### 10.1 Repo public
 
 ```bash
-mkdir -p ~/apps
-cd ~/apps
+cd ~
 git clone --recurse-submodules https://github.com/<owner>/<repo>.git chat-app
 cd chat-app
 ```
@@ -367,8 +366,7 @@ Copy public key, vao GitHub repo:
 Clone:
 
 ```bash
-mkdir -p ~/apps
-cd ~/apps
+cd ~
 git clone --recurse-submodules git@github.com:<owner>/<repo>.git chat-app
 cd chat-app
 ```
@@ -378,7 +376,7 @@ cd chat-app
 Trong EC2:
 
 ```bash
-cd ~/apps/chat-app
+cd ~/chat-app
 nano .env
 ```
 
@@ -400,7 +398,7 @@ BOT_USER_ID=binchat-ai-bot
 # Mail
 MAIL_USER=your_email@gmail.com
 MAIL_PASS=your_gmail_app_password_or_smtp_password
-MAIL_FROM="Bin Chat" <no-reply@example.com>
+MAIL_FROM="Bin Chat" <no-reply@binchat.me>
 
 # Upload S3
 AWS_REGION=ap-southeast-1
@@ -452,8 +450,8 @@ Bucket -> `Permissions` -> `Cross-origin resource sharing (CORS)`:
 [
   {
     "AllowedOrigins": [
-      "https://chat.example.com",
-      "https://your-vercel-project.vercel.app",
+      "https://binchat.me",
+      "https://www.binchat.me",
       "http://localhost:5173"
     ],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
@@ -517,7 +515,7 @@ Cach nay re va de, nhung file co URL la public. Production nghiem tuc nen dung C
 Tao file:
 
 ```bash
-cd ~/apps/chat-app
+cd ~/chat-app
 nano docker-compose.prod.yml
 ```
 
@@ -528,7 +526,7 @@ services:
   api-gateway:
     environment:
       - NODE_ENV=production
-      - CORS_ORIGIN=https://chat.example.com,https://your-vercel-project.vercel.app
+      - CORS_ORIGIN=https://binchat.me,https://www.binchat.me
 
   auth-service:
     environment:
@@ -562,7 +560,7 @@ services:
       - NODE_ENV=production
       - INTERNAL_SERVICE_SECRET=${INTERNAL_SERVICE_SECRET}
       - BOT_USER_ID=${BOT_USER_ID}
-      - CORS_ORIGIN=https://chat.example.com,https://your-vercel-project.vercel.app
+      - CORS_ORIGIN=https://binchat.me,https://www.binchat.me
 
   coturn:
     command: >
@@ -570,7 +568,7 @@ services:
       --log-file=stdout
       --min-port=49152
       --max-port=49200
-      --realm=api.example.com
+      --realm=api.binchat.me
       --user=${TURN_USERNAME}:${TURN_PASSWORD}
       --no-tls
       --no-dtls
@@ -589,7 +587,7 @@ Luu y database:
 Chay:
 
 ```bash
-cd ~/apps/chat-app
+cd ~/chat-app
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
@@ -645,7 +643,7 @@ sudo nano /etc/caddy/Caddyfile
 Noi dung:
 
 ```caddyfile
-api.example.com {
+api.binchat.me {
   encode gzip
   reverse_proxy localhost:3000
 }
@@ -662,7 +660,7 @@ sudo systemctl status caddy
 Test:
 
 ```bash
-curl https://api.example.com/api/health
+curl https://api.binchat.me/api/health
 ```
 
 Neu loi certificate:
@@ -676,21 +674,21 @@ Neu loi certificate:
 Web Vercel:
 
 ```env
-VITE_API_URL=https://api.example.com
-VITE_SOCKET_URL=https://api.example.com
+VITE_API_URL=https://api.binchat.me
+VITE_SOCKET_URL=https://api.binchat.me
 ```
 
 Mobile Expo:
 
 ```env
-EXPO_PUBLIC_API_URL=https://api.example.com
-EXPO_PUBLIC_SOCKET_URL=https://api.example.com
+EXPO_PUBLIC_API_URL=https://api.binchat.me
+EXPO_PUBLIC_SOCKET_URL=https://api.binchat.me
 ```
 
 Backend CORS:
 
 ```env
-CORS_ORIGIN=https://chat.example.com,https://your-vercel-project.vercel.app
+CORS_ORIGIN=https://binchat.me,https://www.binchat.me
 ```
 
 Sau khi sua `docker-compose.prod.yml`, restart:
@@ -723,8 +721,8 @@ docker cp chat-mongo:/tmp/mongo.archive ~/backups/mongo-$(date +%F).archive
 Tai ve may:
 
 ```bash
-scp -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.example.com:~/backups/postgres-YYYY-MM-DD.sql .
-scp -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.example.com:~/backups/mongo-YYYY-MM-DD.archive .
+scp -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.binchat.me:~/backups/postgres-YYYY-MM-DD.sql .
+scp -i ~/Downloads/binchat-ec2-key.pem ubuntu@api.binchat.me:~/backups/mongo-YYYY-MM-DD.archive .
 ```
 
 Neu muon backup re hon nua, upload backup len S3 voi lifecycle xoa sau 7-30 ngay.
@@ -732,7 +730,7 @@ Neu muon backup re hon nua, upload backup len S3 voi lifecycle xoa sau 7-30 ngay
 ## 18. Update backend thu cong
 
 ```bash
-cd ~/apps/chat-app
+cd ~/chat-app
 git pull
 git submodule update --init --recursive
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d --build
@@ -742,7 +740,7 @@ docker image prune -f
 Test:
 
 ```bash
-curl https://api.example.com/api/health
+curl https://api.binchat.me/api/health
 docker ps
 ```
 
@@ -757,7 +755,7 @@ Xem file [CI_CD_GITHUB_ACTIONS.md](./CI_CD_GITHUB_ACTIONS.md). Tom tat:
 Secrets can co:
 
 ```txt
-EC2_HOST=api.example.com
+EC2_HOST=api.binchat.me
 EC2_USER=ubuntu
 EC2_SSH_KEY=<private key>
 EC2_PORT=22
@@ -835,7 +833,7 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml 
 
 Kiem tra:
 
-- Web da co `VITE_SOCKET_URL=https://api.example.com`.
+- Web da co `VITE_SOCKET_URL=https://api.binchat.me`.
 - `appSocket.ts` da ket noi den env backend, khong phai `io('/')`.
 - Caddy reverse proxy den `localhost:3000`.
 - Security Group mo `443`.
