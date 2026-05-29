@@ -89,7 +89,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Checkout backend submodules only
+        env:
+          SUBMODULES_TOKEN: ${{ secrets.SUBMODULES_TOKEN }}
+        run: |
+          if [ -n "$SUBMODULES_TOKEN" ]; then
+            git config --global url."https://x-access-token:${SUBMODULES_TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+
+          git submodule sync -- \
+            gateway \
+            services/auth \
+            services/user \
+            services/friend \
+            services/notification \
+            services/upload \
+            services/chat \
+            services/ai
+
+          git submodule update --init --depth 1 -- \
+            gateway \
+            services/auth \
+            services/user \
+            services/friend \
+            services/notification \
+            services/upload \
+            services/chat \
+            services/ai
 
       - name: Decide whether to build this service
         id: decide
