@@ -1,0 +1,32 @@
+services:
+  api-gateway:
+    image: ghcr.io/bin-chat/api-gateway:${API_GATEWAY_TAG:-main}
+    build: null
+
+  auth-service:
+    image: ghcr.io/bin-chat/auth-service:${AUTH_SERVICE_TAG:-main}
+    build: null
+
+  user-service:
+    image: ghcr.io/bin-chat/user-service:${USER_SERVICE_TAG:-main}
+    build: null
+
+  friend-service:
+    image: ghcr.io/bin-chat/friend-service:${FRIEND_SERVICE_TAG:-main}
+    build: null
+
+  notification-service:
+    image: ghcr.io/bin-chat/notification-service:${NOTIFICATION_SERVICE_TAG:-main}
+    build: null
+
+  upload-service:
+    image: ghcr.io/bin-chat/upload-service:${UPLOAD_SERVICE_TAG:-main}
+    build: null
+
+  chat-service:
+    image: ghcr.io/bin-chat/chat-service:${CHAT_SERVICE_TAG:-main}
+    build: null
+
+  ai-service:
+    image: ghcr.io/bin-chat/ai-service:${AI_SERVICE_TAG:-main}
+    build: null
