@@ -1,6 +1,6 @@
 [submodule "apps/web"]
 	path = apps/web
-	url = https://github.com/DaoNgocAnh25092004/chat-app-ui-web.git
+	url = https://github.com/Bin-Chat/chat-app-ui-web.git
 	branch = main
 
 [submodule "apps/mobile"]
