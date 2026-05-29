@@ -107,7 +107,7 @@ jobs:
               set_tag UPLOAD_SERVICE_TAG "$TAG"
               set_tag CHAT_SERVICE_TAG "$TAG"
               set_tag AI_SERVICE_TAG "$TAG"
-              TARGET_SERVICES=""
+              TARGET_SERVICES="api-gateway auth-service user-service friend-service notification-service upload-service chat-service ai-service"
             elif [ "$SERVICE" = "api-gateway" ]; then
               set_tag API_GATEWAY_TAG "$TAG"
               TARGET_SERVICES="api-gateway"
@@ -139,23 +139,16 @@ jobs:
 
             echo "==> Updated .env.images"
             cat .env.images
-            echo "==> Target services: ${TARGET_SERVICES:-all}"
+            echo "==> Target services: $TARGET_SERVICES"
 
             echo "==> Validate compose config"
             sudo docker compose --env-file .env --env-file .env.images $COMPOSE config >/tmp/binchat-compose-config.yml
             echo "==> Compose config OK"
 
-            if [ -n "$TARGET_SERVICES" ]; then
-              echo "==> Pull target services"
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
-              echo "==> Restart target services"
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
-            else
-              echo "==> Pull all services"
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull
-              echo "==> Restart all services"
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans
-            fi
+            echo "==> Pull target services"
+            sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
+            echo "==> Restart target services"
+            sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
 
             echo "==> Wait for health check"
             for i in $(seq 1 30); do
@@ -170,11 +163,6 @@ jobs:
 
             echo "Health check failed. Rolling back .env.images"
             cp .env.images.previous .env.images
-            if [ -n "$TARGET_SERVICES" ]; then
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
-            else
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull
-              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans
-            fi
+            sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
+            sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
             exit 1
