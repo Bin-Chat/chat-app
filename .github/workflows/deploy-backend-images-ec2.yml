@@ -35,34 +35,32 @@ jobs:
     steps:
       - name: Deploy by SSH
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          SERVICE: ${{ github.event.inputs.service }}
-          TAG: ${{ github.event.inputs.tag }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT || 22 }}
-          envs: SERVICE,TAG
           script_stop: true
           command_timeout: 20m
           script: |
             set -Eeuo pipefail
             cd ~/chat-app
 
+            SERVICE="${{ github.event.inputs.service }}"
+            TAG="${{ github.event.inputs.tag }}"
             COMPOSE="-f docker-compose.yml -f docker-compose.env-production.yml -f docker-compose.prod-images.yml"
 
             if [ ! -f .env.images ]; then
-              cat > .env.images <<'EOF'
-            API_GATEWAY_TAG=main
-            AUTH_SERVICE_TAG=main
-            USER_SERVICE_TAG=main
-            FRIEND_SERVICE_TAG=main
-            NOTIFICATION_SERVICE_TAG=main
-            UPLOAD_SERVICE_TAG=main
-            CHAT_SERVICE_TAG=main
-            AI_SERVICE_TAG=main
-            EOF
+              {
+                echo "API_GATEWAY_TAG=main"
+                echo "AUTH_SERVICE_TAG=main"
+                echo "USER_SERVICE_TAG=main"
+                echo "FRIEND_SERVICE_TAG=main"
+                echo "NOTIFICATION_SERVICE_TAG=main"
+                echo "UPLOAD_SERVICE_TAG=main"
+                echo "CHAT_SERVICE_TAG=main"
+                echo "AI_SERVICE_TAG=main"
+              } > .env.images
             fi
 
             cp .env.images .env.images.previous
@@ -87,23 +85,42 @@ jobs:
               set_tag CHAT_SERVICE_TAG "$TAG"
               set_tag AI_SERVICE_TAG "$TAG"
               TARGET_SERVICES=""
+            elif [ "$SERVICE" = "api-gateway" ]; then
+              set_tag API_GATEWAY_TAG "$TAG"
+              TARGET_SERVICES="api-gateway"
+            elif [ "$SERVICE" = "auth-service" ]; then
+              set_tag AUTH_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="auth-service api-gateway"
+            elif [ "$SERVICE" = "user-service" ]; then
+              set_tag USER_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="user-service api-gateway"
+            elif [ "$SERVICE" = "friend-service" ]; then
+              set_tag FRIEND_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="friend-service api-gateway"
+            elif [ "$SERVICE" = "notification-service" ]; then
+              set_tag NOTIFICATION_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="notification-service api-gateway"
+            elif [ "$SERVICE" = "upload-service" ]; then
+              set_tag UPLOAD_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="upload-service api-gateway"
+            elif [ "$SERVICE" = "chat-service" ]; then
+              set_tag CHAT_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="chat-service api-gateway"
+            elif [ "$SERVICE" = "ai-service" ]; then
+              set_tag AI_SERVICE_TAG "$TAG"
+              TARGET_SERVICES="ai-service api-gateway"
             else
-              case "$SERVICE" in
-                api-gateway) set_tag API_GATEWAY_TAG "$TAG" ;;
-                auth-service) set_tag AUTH_SERVICE_TAG "$TAG" ;;
-                user-service) set_tag USER_SERVICE_TAG "$TAG" ;;
-                friend-service) set_tag FRIEND_SERVICE_TAG "$TAG" ;;
-                notification-service) set_tag NOTIFICATION_SERVICE_TAG "$TAG" ;;
-                upload-service) set_tag UPLOAD_SERVICE_TAG "$TAG" ;;
-                chat-service) set_tag CHAT_SERVICE_TAG "$TAG" ;;
-                ai-service) set_tag AI_SERVICE_TAG "$TAG" ;;
-                *) echo "Unknown service: $SERVICE"; exit 1 ;;
-              esac
-              TARGET_SERVICES="$SERVICE api-gateway"
+              echo "Unknown service: $SERVICE"
+              exit 1
             fi
 
-            sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
-            sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
+            if [ -n "$TARGET_SERVICES" ]; then
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
+            else
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans
+            fi
 
             for i in $(seq 1 30); do
               if curl -fsS http://localhost:3000/api/health; then
@@ -117,6 +134,11 @@ jobs:
 
             echo "Health check failed. Rolling back .env.images"
             cp .env.images.previous .env.images
-            sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
-            sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
+            if [ -n "$TARGET_SERVICES" ]; then
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
+            else
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull
+              sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans
+            fi
             exit 1
