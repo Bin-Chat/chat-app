@@ -41,16 +41,36 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT || 22 }}
           script_stop: true
+          debug: true
           command_timeout: 20m
           script: |
-            set -Eeuo pipefail
+            set -Eeo pipefail
+            echo "==> Connected to EC2"
+            echo "==> User: $(whoami)"
+            echo "==> Host: $(hostname)"
+            echo "==> Date: $(date -Is)"
+
             cd ~/chat-app
+            echo "==> Working directory: $(pwd)"
 
             SERVICE="${{ github.event.inputs.service }}"
             TAG="${{ github.event.inputs.tag }}"
             COMPOSE="-f docker-compose.yml -f docker-compose.env-production.yml -f docker-compose.prod-images.yml"
 
+            echo "==> Service: $SERVICE"
+            echo "==> Tag: $TAG"
+            echo "==> Check required files"
+            ls -lah docker-compose.yml
+            ls -lah docker-compose.env-production.yml
+            ls -lah docker-compose.prod-images.yml
+            ls -lah .env
+
+            echo "==> Docker versions"
+            sudo docker --version
+            sudo docker compose version
+
             if [ ! -f .env.images ]; then
+              echo "==> .env.images not found, creating default file"
               {
                 echo "API_GATEWAY_TAG=main"
                 echo "AUTH_SERVICE_TAG=main"
@@ -62,6 +82,9 @@ jobs:
                 echo "AI_SERVICE_TAG=main"
               } > .env.images
             fi
+
+            echo "==> Current .env.images"
+            cat .env.images
 
             cp .env.images .env.images.previous
 
@@ -114,14 +137,27 @@ jobs:
               exit 1
             fi
 
+            echo "==> Updated .env.images"
+            cat .env.images
+            echo "==> Target services: ${TARGET_SERVICES:-all}"
+
+            echo "==> Validate compose config"
+            sudo docker compose --env-file .env --env-file .env.images $COMPOSE config >/tmp/binchat-compose-config.yml
+            echo "==> Compose config OK"
+
             if [ -n "$TARGET_SERVICES" ]; then
+              echo "==> Pull target services"
               sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull $TARGET_SERVICES
+              echo "==> Restart target services"
               sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans $TARGET_SERVICES
             else
+              echo "==> Pull all services"
               sudo docker compose --env-file .env --env-file .env.images $COMPOSE pull
+              echo "==> Restart all services"
               sudo docker compose --env-file .env --env-file .env.images $COMPOSE up -d --remove-orphans
             fi
 
+            echo "==> Wait for health check"
             for i in $(seq 1 30); do
               if curl -fsS http://localhost:3000/api/health; then
                 echo
