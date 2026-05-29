@@ -3,21 +3,31 @@
 Tai lieu nay mo ta CI/CD thuc te cho setup hien tai:
 
 - Web deploy len Vercel.
-- Backend deploy len EC2 bang Docker Compose.
+- Backend deploy len EC2 bang Docker Compose + GHCR images.
 - Backend co nhieu service va nhieu repo con/submodule.
 - Khong dung Docker Hub/ECR de tiet kiem chi phi.
+- Can doc them: [EC2_SOURCE_VS_IMAGE_DEPLOY.md](./EC2_SOURCE_VS_IMAGE_DEPLOY.md)
 
 ## 1. Cac workflow da tao
 
 ```txt
-.github/workflows/backend-ci.yml
-.github/workflows/deploy-backend-ec2.yml
-.github/workflows/deploy-web-vercel.yml
+.github/workflows/build-push-backend-images.yml
+.github/workflows/deploy-backend-images-ec2.yml
 docs/templates/service-repo-dispatch-backend.yml
 docs/templates/web-repo-dispatch.yml
 ```
 
 Workflow cu `.github/workflows/ci-cd.yml` da duoc thay the vi khong con khop voi repo hien tai.
+
+Hai file compose production quan trong:
+
+```txt
+docker-compose.env-production.yml
+docker-compose.prod-images.yml
+```
+
+- `docker-compose.env-production.yml`: cau hinh production, CORS domain that, TURN realm, env production.
+- `docker-compose.prod-images.yml`: bat EC2 pull image tu GHCR thay vi build source tren EC2.
 
 ## 2. Cach hieu repo nhieu service/nhieu repo
 
