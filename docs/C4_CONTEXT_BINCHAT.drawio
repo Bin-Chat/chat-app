@@ -1,0 +1,55 @@
+<mxfile host="app.diagrams.net" agent="Codex">
+  <diagram id="c4-context-binchat" name="C4 Context - BinChat">
+    <mxGraphModel dx="1200" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="C4 Context Diagram - BinChat" style="text;html=1;strokeColor=none;fillColor=none;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="420" y="30" width="560" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Pham vi: he thong chat BinChat gom Web, Mobile va Backend API. So do nay chi mo ta actor va cac he thong ben ngoai co lien quan." style="text;html=1;strokeColor=none;fillColor=none;fontSize=12;align=center;verticalAlign=middle;fontColor=#555555;" vertex="1" parent="1">
+          <mxGeometry x="300" y="70" width="800" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="user" value="End User&lt;br&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;Nguoi dung Web/Mobile&lt;/font&gt;" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="95" y="235" width="80" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="developer" value="Developer / Operator&lt;br&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;Push code, deploy, monitor&lt;/font&gt;" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="95" y="560" width="80" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="binchat" value="BinChat System&lt;br&gt;&lt;font style=&quot;font-size:12px;&quot;&gt;Real-time chat, friend, media upload, AI assistant, notification&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#FFFFFF;fontSize=18;fontStyle=1;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="280" width="360" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="scope" value="System of Interest" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=6 4;fillColor=none;strokeColor=#1168BD;fontColor=#1168BD;fontStyle=1;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="455" y="235" width="450" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="email" value="Email Provider&lt;br&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;Gmail SMTP / Mail service&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="165" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="storage" value="Object Storage / CDN&lt;br&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;AWS S3 + CloudFront media&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="315" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="platform" value="Deployment Platforms&lt;br&gt;&lt;font style=&quot;font-size:11px;&quot;&gt;GitHub Actions, GHCR, Vercel, AWS EC2&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="520" width="190" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="Context dung de tra loi:&lt;br&gt;1. Ai su dung he thong?&lt;br&gt;2. BinChat la he thong nao?&lt;br&gt;3. BinChat phu thuoc he thong ngoai nao?" style="shape=note;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#D6B656;align=left;verticalAlign=top;spacing=10;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="420" y="610" width="420" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="e-user-binchat" value="Dang ky, dang nhap, chat, goi, gui file" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#333333;fontSize=11;" edge="1" parent="1" source="user" target="binchat">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-binchat-email" value="Gui OTP / welcome email" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#D79B00;fontSize=11;" edge="1" parent="1" source="binchat" target="email">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-binchat-storage" value="Upload / download media" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#2E7D32;fontSize=11;" edge="1" parent="1" source="binchat" target="storage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-dev-platform" value="Push code / run CI-CD" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#8A3FFC;fontSize=11;" edge="1" parent="1" source="developer" target="platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-platform-binchat" value="Deploy Web + Backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#8A3FFC;fontSize=11;" edge="1" parent="1" source="platform" target="binchat">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

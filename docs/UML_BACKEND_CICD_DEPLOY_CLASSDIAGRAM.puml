@@ -1,0 +1,416 @@
+@startuml
+title Bin Chat - Backend Deployment and CI/CD Class Diagram
+
+skinparam shadowing false
+skinparam backgroundColor #FAFBFC
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 55
+skinparam ranksep 45
+
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #2F3A4A
+  FontColor #1D2733
+  HeaderBackgroundColor #EAF3FF
+  HeaderFontColor #0B4EA2
+}
+
+skinparam package {
+  BackgroundColor #F6F8FA
+  BorderColor #9AA4B2
+  FontColor #263445
+}
+
+left to right direction
+
+class Developer {
+  <<actor>>
+  +pushCode()
+  +updateSubmodule()
+  +runManualDeploy()
+}
+
+class EndUser {
+  <<actor>>
+  +openWeb()
+  +login()
+  +sendMessage()
+  +uploadMedia()
+}
+
+package GitHub_Source_Control {
+  class RootRepo {
+    <<chat-app root repo>>
+    +.gitmodules
+    +docker-compose.yml
+    +docker-compose.env-production.yml
+    +docker-compose.prod-images.yml
+    +backend workflows
+    --
+    +pointsToSubmoduleCommits()
+    +triggersBackendImageBuild()
+    +triggersEc2Deploy()
+  }
+
+  class WebRepo {
+    <<apps/web repo>>
+    +React
+    +Vite
+    +vercel.json
+    +deploy-vercel.yml
+    --
+    +buildWeb()
+    +deployToVercel()
+  }
+
+  class ApiGatewayRepo {
+    <<gateway/api-gateway>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class AuthRepo {
+    <<services/auth>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class UserRepo {
+    <<services/user>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class FriendRepo {
+    <<services/friend>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class ChatRepo {
+    <<services/chat>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class UploadRepo {
+    <<services/upload>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class NotificationRepo {
+    <<services/notification>>
+    +Dockerfile
+    +NestJS source
+  }
+
+  class AiRepo {
+    <<services/ai>>
+    +Dockerfile
+    +NestJS source
+  }
+}
+
+package GitHub_Actions {
+  class BuildBackendImagesWorkflow {
+    <<workflow>>
+    +checkoutBackendSubmodules()
+    +buildApiGatewayImage()
+    +buildAuthServiceImage()
+    +buildUserServiceImage()
+    +buildFriendServiceImage()
+    +buildChatServiceImage()
+    +buildUploadServiceImage()
+    +buildNotificationServiceImage()
+    +buildAiServiceImage()
+    +pushImagesToGHCR()
+  }
+
+  class DeployBackendToEC2Workflow {
+    <<workflow>>
+    +sshToEC2()
+    +updateEnvImages()
+    +dockerComposePull()
+    +dockerComposeUp()
+    +healthCheck()
+    +rollbackOnFailure()
+  }
+
+  class DeployWebToVercelWorkflow {
+    <<workflow>>
+    +npmInstall()
+    +vercelPull()
+    +vercelBuild()
+    +vercelDeploy()
+  }
+}
+
+package GitHub_Container_Registry {
+  class GHCR {
+    <<container registry>>
+    +api-gateway:main
+    +auth-service:main
+    +user-service:main
+    +friend-service:main
+    +chat-service:main
+    +upload-service:main
+    +notification-service:main
+    +ai-service:main
+  }
+}
+
+package Vercel_Web_Production {
+  class WebProduction {
+    <<www.binchat.me>>
+    +React SPA
+    +rewriteAllRoutesToIndexHtml()
+    +VITE_API_URL=https://api.binchat.me
+    +VITE_SOCKET_URL=https://api.binchat.me
+  }
+}
+
+package AWS_EC2_Backend_Production {
+  class Caddy {
+    <<reverse proxy>>
+    +domain=api.binchat.me
+    +autoTLSLetsEncrypt()
+    +redirectHttpToHttps()
+    +reverseProxyToApiGateway()
+  }
+
+  class DockerComposeRuntime {
+    <<orchestrator>>
+    +docker-compose.yml
+    +docker-compose.env-production.yml
+    +docker-compose.prod-images.yml
+    +.env
+    +.env.images
+    --
+    +pullImagesFromGHCR()
+    +restartContainers()
+    +preserveVolumes()
+  }
+
+  package Backend_Microservices {
+    class ApiGatewayService {
+      <<api-gateway :3000>>
+      +routeAuthApi()
+      +routeUserApi()
+      +routeFriendApi()
+      +routeUploadApi()
+      +routeChatApi()
+      +routeAiApi()
+      +routeSocketIo()
+      +health()
+    }
+
+    class AuthService {
+      <<auth-service :3010>>
+      +register()
+      +verifyEmail()
+      +login()
+      +refreshToken()
+      +logout()
+      +emitWelcomeEmailEvent()
+    }
+
+    class UserService {
+      <<user-service :3020>>
+      +getProfile()
+      +updateProfile()
+      +findUsers()
+      +health()
+    }
+
+    class FriendService {
+      <<friend-service :3025>>
+      +sendFriendRequest()
+      +acceptFriendRequest()
+      +listFriends()
+      +health()
+    }
+
+    class NotificationService {
+      <<notification-service :3030>>
+      +consumeEmailEvent()
+      +sendWelcomeEmail()
+      +sendOtpEmail()
+      +useFrontendUrl()
+    }
+
+    class UploadService {
+      <<upload-service :3035>>
+      +presignUpload()
+      +finalizeUpload()
+      +validateFileCategory()
+      +allowAvatarImageVideoDocumentAudio()
+      +health()
+    }
+
+    class ChatService {
+      <<chat-service :3040>>
+      +sendMessage()
+      +listConversations()
+      +createTask()
+      +createNote()
+      +createPoll()
+      +createReminder()
+      +health()
+    }
+
+    class AiService {
+      <<ai-service :3050>>
+      +summarize()
+      +semanticSearch()
+      +translate()
+      +moderate()
+      +ragAnswer()
+      +health()
+    }
+
+    class CoturnService {
+      <<coturn :3478>>
+      +turnRelay()
+      +webrtcNatTraversal()
+    }
+  }
+
+  package Stateful_Infrastructure {
+    class PostgreSQL {
+      <<database :5432>>
+      +auth_service
+      +user_service
+      +friend_service
+      +chatapp
+    }
+
+    class MongoDB {
+      <<database :27017>>
+      +chat_service
+      +messages
+      +conversations
+      +polls
+      +tasks
+      +notes
+    }
+
+    class Redis {
+      <<cache :6379>>
+      +otp()
+      +sessions()
+      +cache()
+    }
+
+    class RedpandaKafka {
+      <<event bus :9092>>
+      +user.registered
+      +notification.email
+      +chat.events
+    }
+
+    class Qdrant {
+      <<vector database :6333>>
+      +vectors
+      +ragCollections
+    }
+  }
+}
+
+package AWS_Storage {
+  class S3Bucket {
+    <<binchat-s3>>
+    +presignedPutUpload()
+    +corsAllowedOrigins()
+    +storeMedia()
+  }
+
+  class CloudFrontCDN {
+    <<cdn>>
+    +servePublicMedia()
+  }
+}
+
+Developer --> WebRepo : push web code
+Developer --> AuthRepo : push service code
+Developer --> ChatRepo : push service code
+Developer --> RootRepo : update submodule pointer
+
+RootRepo o-- WebRepo
+RootRepo o-- ApiGatewayRepo
+RootRepo o-- AuthRepo
+RootRepo o-- UserRepo
+RootRepo o-- FriendRepo
+RootRepo o-- ChatRepo
+RootRepo o-- UploadRepo
+RootRepo o-- NotificationRepo
+RootRepo o-- AiRepo
+
+RootRepo --> BuildBackendImagesWorkflow : push main
+BuildBackendImagesWorkflow --> GHCR : push Docker images
+GHCR --> DeployBackendToEC2Workflow : image tag main or sha
+DeployBackendToEC2Workflow --> DockerComposeRuntime : SSH deploy
+DockerComposeRuntime --> GHCR : docker compose pull
+DockerComposeRuntime --> ApiGatewayService : up -d
+DockerComposeRuntime --> AuthService : up -d
+DockerComposeRuntime --> UserService : up -d
+DockerComposeRuntime --> FriendService : up -d
+DockerComposeRuntime --> NotificationService : up -d
+DockerComposeRuntime --> UploadService : up -d
+DockerComposeRuntime --> ChatService : up -d
+DockerComposeRuntime --> AiService : up -d
+DockerComposeRuntime --> CoturnService : up -d
+
+WebRepo --> DeployWebToVercelWorkflow : push main
+DeployWebToVercelWorkflow --> WebProduction : deploy production
+
+EndUser --> WebProduction : open www.binchat.me
+WebProduction --> Caddy : HTTPS API and Socket.IO
+Caddy --> ApiGatewayService : reverse proxy localhost:3000
+
+ApiGatewayService --> AuthService : internal HTTP
+ApiGatewayService --> UserService : internal HTTP
+ApiGatewayService --> FriendService : internal HTTP
+ApiGatewayService --> UploadService : internal HTTP
+ApiGatewayService --> ChatService : internal HTTP
+ApiGatewayService --> AiService : internal HTTP
+
+AuthService --> PostgreSQL
+AuthService --> Redis
+AuthService --> RedpandaKafka : notification.email
+NotificationService --> RedpandaKafka : consume
+UserService --> PostgreSQL
+FriendService --> PostgreSQL
+ChatService --> MongoDB
+ChatService --> RedpandaKafka
+UploadService --> S3Bucket
+S3Bucket --> CloudFrontCDN
+WebProduction --> S3Bucket : upload by presigned URL
+WebProduction --> CloudFrontCDN : load media
+AiService --> Qdrant
+AiService --> Redis
+AiService --> ChatService
+AiService --> UserService
+WebProduction --> CoturnService : WebRTC relay if needed
+
+note right of DockerComposeRuntime
+EC2 does not need fresh service source code
+for every backend deploy.
+
+Production containers run from GHCR images.
+Only compose/env/deploy files need git pull
+when those files change.
+end note
+
+note bottom of DeployBackendToEC2Workflow
+Deploy flow:
+1. Select service or all
+2. Pull GHCR image
+3. Restart container
+4. Check health endpoint
+5. Roll back .env.images if failed
+end note
+
+@enduml
